@@ -40,7 +40,6 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
 
   val duration = 10.seconds
   implicit val timeout: Timeout = Timeout(duration)
-  type BytesIn = Array[Byte]
 
   private val client: AmazonS3Client = new AmazonS3Client(new AWSCredentials {
     def getAWSAccessKeyId: String = key
@@ -56,8 +55,8 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
       BadRequest("Invalid key")
     } else {
 
-      def returnResultWithAsset(s3: AmazonS3Client, bucket: String, key: String): Result = {
-        val s3Object: S3Object = s3.getObject(bucket, fullKey) //get object. may result in exception
+      def returnResultWithAsset( bucket: String, key: String): Result = {
+        val s3Object: S3Object = client.getObject(bucket, fullKey) //get object. may result in exception
         val inputStream: InputStream = s3Object.getObjectContent
         val objContent: Enumerator[Array[Byte]] = Enumerator.fromStream(inputStream)
         val metadata = s3Object.getObjectMetadata
@@ -67,16 +66,16 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
         )
       }
 
-      def returnNotModifiedOrResultWithAsset(s3: AmazonS3Client, headers: Headers, bucket: String, key: String): Result = {
-        val metadata: ObjectMetadata = s3.getObjectMetadata(new GetObjectMetadataRequest(bucket, fullKey))
+      def returnNotModifiedOrResultWithAsset(headers: Headers, bucket: String, key: String): Result = {
+        val metadata: ObjectMetadata = client.getObjectMetadata(new GetObjectMetadataRequest(bucket, fullKey))
         val ifNoneMatch = headers.get(IF_NONE_MATCH).getOrElse("")
-        if (ifNoneMatch != "" && ifNoneMatch == metadata.getETag) Results.NotModified else returnResultWithAsset(s3, bucket, fullKey)
+        if (ifNoneMatch != "" && ifNoneMatch == metadata.getETag) Results.NotModified else returnResultWithAsset(bucket, fullKey)
       }
 
       try {
         headers match {
-          case Some(foundHeaders) => returnNotModifiedOrResultWithAsset(client, foundHeaders, bucket, fullKey)
-          case _ => returnResultWithAsset(client, bucket, fullKey)
+          case Some(foundHeaders) => returnNotModifiedOrResultWithAsset(foundHeaders, bucket, fullKey)
+          case _ => returnResultWithAsset(bucket, fullKey)
         }
       }
       catch {
@@ -105,8 +104,8 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
           val ref = actorSystem.actorOf(Props(new S3Writer(client, bucket, keyName, new PipedInputStream(outputStream), l)))
           ref ! Begin
 
-          val out: Iteratee[BytesIn, Int] = {
-            Iteratee.fold[BytesIn, Int](0) {
+          val out: Iteratee[Array[Byte], Int] = {
+            Iteratee.fold[Array[Byte], Int](0) {
               (length, bytes) =>
                 outputStream.write(bytes, 0, bytes.size)
                 length + bytes.size
