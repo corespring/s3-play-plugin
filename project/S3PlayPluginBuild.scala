@@ -5,12 +5,13 @@ object S3PlayPluginBuild extends Build {
 
   object Dependencies {
     val play = "play" %% "play" % "2.1.1" % "provided"
+    val playTest = "play" %% "play-test" % "2.1.1" % "test"
     val specs2 = "org.specs2" %% "specs2" % "1.14" % "test"
     val aws = "com.amazonaws" % "aws-java-sdk" % "1.4.3"
     val config = "com.typesafe" % "config" % "1.0.0"
     val akkaTest = "com.typesafe.akka" %% "akka-testkit" % "2.1.0" % "test"
     val scalaTest = "org.scalatest" % "scalatest_2.10" % "1.9.1" % "test"
-    val all = Seq(scalaTest, specs2, play, aws, config, akkaTest)
+    val all = Seq(scalaTest, specs2, play, playTest, aws, config, akkaTest)
   }
 
   object Resolvers {

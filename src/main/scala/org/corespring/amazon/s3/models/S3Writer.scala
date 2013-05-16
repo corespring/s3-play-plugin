@@ -4,6 +4,7 @@ import akka.actor.Actor
 import com.amazonaws.services.s3.AmazonS3Client
 import com.amazonaws.services.s3.model.{AmazonS3Exception, ObjectMetadata}
 import java.io.InputStream
+import akka.event.Logging
 
 case object Begin
 
@@ -25,24 +26,35 @@ private object S3Writer{
 
 private[s3] class S3Writer(client: AmazonS3Client, bucket: String, keyName: String, inputStream: InputStream, contentLength: Int) extends Actor {
 
-  import org.corespring.amazon.s3.log.Logger
-
   import S3Writer.Message._
+
+  val log = Logging(context.system, this)
+
+  log.debug("inputStream: " + inputStream)
 
   def receive = {
     case Begin => begin match {
       case Right(ready) => sender ! ready
-      case Left(e) => sender ! e
+      case Left(e) => {
+        inputStream.close()
+        sender ! e
+      }
     }
     case EOF => end match {
-      case Right(complete) => sender ! complete
-      case Left(we) => sender ! we
+      case Right(complete) => {
+        log.debug("[EOF] return complete: " + complete + " to sender")
+        sender ! complete
+      }
+      case Left(we) => {
+        log.warning("[EOF] Writer error on end....")
+        sender ! we
+      }
     }
     case _ => throw new RuntimeException("Unknown command")
   }
 
   private def begin: Either[WriteError, WriterReady.type] = try {
-    Logger.debug("Begin upload...")
+    context.system.log.debug("Begin upload...")
     val objectMetadata = new ObjectMetadata
     objectMetadata.setContentLength(contentLength)
     client.putObject(bucket, keyName, inputStream, objectMetadata)
@@ -53,6 +65,7 @@ private[s3] class S3Writer(client: AmazonS3Client, bucket: String, keyName: Stri
   }
 
   private def end: Either[WriteError, WriteCompleted.type] = try {
+    log.debug("[end] - close the input stream: " + inputStream)
     inputStream.close()
     Right(WriteCompleted)
   } catch {

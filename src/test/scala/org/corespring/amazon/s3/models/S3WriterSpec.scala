@@ -67,7 +67,7 @@ class S3WriterSpec(_system: ActorSystem) extends TestKit(_system) with ImplicitS
       ref ! EOF
       expectMsgAllOf(WriterReady, WriteCompleted)
 
-      Thread.sleep(1000)
+      Thread.sleep(2000)
       val uploadedFile = client.getObject(testBucket,name)
       uploadedFile.getKey must equal(name)
     }
