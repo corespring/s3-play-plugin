@@ -9,7 +9,8 @@ There are to sections:
 
 ## Running the example
 
-To set it up you'll need to add the following conf file: example/conf/amazon-s3.conf in which you specify `amazonKey` and `amazonSecret`.
-You'll also need to publish-local in the plugin folder.
+To set it up you'll need to add the following conf file: `example/conf/amazon-s3.conf` in which you specify `amazonKey` and `amazonSecret`. This will allow it to upload to a bucket.
+
+You'll also need to publish-local in the plugin folder, so that the dependency is available to the play app (not on a internet repo yet).
 
 
