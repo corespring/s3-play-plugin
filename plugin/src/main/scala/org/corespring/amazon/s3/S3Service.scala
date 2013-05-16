@@ -16,7 +16,7 @@ import scala.concurrent.Await
 trait S3Service {
   def download(bucket: String, fullKey: String, headers: Option[Headers] = None): Result
 
-  def upload(bucket: String, keyName: String): BodyParser[String]
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result]) = (r => None)): BodyParser[String]
 
   def delete(bucket: String, keyName: String): DeleteResponse
 
@@ -25,10 +25,9 @@ trait S3Service {
 object EmptyS3Service extends S3Service {
   def download(bucket: String, fullKey: String, headers: Option[Headers]): Result = ???
 
-  def upload(bucket: String, keyName: String): BodyParser[String] = ???
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result])): BodyParser[String] = ???
 
   def delete(bucket: String, keyName: String): DeleteResponse = ???
-
 }
 
 class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: ActorSystem) extends S3Service {
@@ -56,7 +55,7 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
       BadRequest("Invalid key")
     } else {
 
-      def returnResultWithAsset( bucket: String, key: String): Result = {
+      def returnResultWithAsset(bucket: String, key: String): Result = {
         val s3Object: S3Object = client.getObject(bucket, fullKey) //get object. may result in exception
         val inputStream: InputStream = s3Object.getObjectContent
         val objContent: Enumerator[Array[Byte]] = Enumerator.fromStream(inputStream)
@@ -95,37 +94,46 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
 
   import akka.pattern._
 
-  def upload(bucket: String, keyName: String): BodyParser[String] = BodyParser("S3Service") {
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result]) = (r => None)): BodyParser[String] = BodyParser("S3Service") {
 
     request =>
-      request.headers.get(CONTENT_LENGTH).map(_.toInt).map {
-        l =>
-          Logger.debug("Begin upload to: " + bucket + " " + keyName)
 
-          val outputStream = new PipedOutputStream()
+      def uploadValidated = {
+        request.headers.get(CONTENT_LENGTH).map(_.toInt).map {
+          l =>
+            Logger.debug("Begin upload to: " + bucket + " " + keyName)
 
-          val ref = actorSystem.actorOf(Props(new S3Writer(client, bucket, keyName, new PipedInputStream(outputStream), l)))
+            val outputStream = new PipedOutputStream()
 
-          //We fire and forget here as we only check for errors at the end
-          ref ! Begin
+            val ref = actorSystem.actorOf(Props(new S3Writer(client, bucket, keyName, new PipedInputStream(outputStream), l)))
 
-          val out: Iteratee[Array[Byte], Int] = {
-            Iteratee.fold[Array[Byte], Int](0) {
-              (length, bytes) =>
-                outputStream.write(bytes, 0, bytes.size)
-                length + bytes.size
-            }
-          }
-          out.mapDone({
-            i =>
-              outputStream.close()
-              val result = Await.result(ref ? Complete, 1.second)
-              result match {
-                case WriteResult(Seq()) => Right(keyName)
-                case WriteResult(errors) => Left(BadRequest("Some errors occured: " + errors.mkString("\n")))
+            //We fire and forget here as we only check for errors at the end
+            ref ! Begin
+
+            val out: Iteratee[Array[Byte], Int] = {
+              Iteratee.fold[Array[Byte], Int](0) {
+                (length, bytes) =>
+                  outputStream.write(bytes, 0, bytes.size)
+                  length + bytes.size
               }
-          })
-      }.getOrElse(nothing)
+            }
+            out.mapDone({
+              i =>
+                outputStream.close()
+                val result = Await.result(ref ? Complete, 1.second)
+                result match {
+                  case WriteResult(Seq()) => Right(keyName)
+                  case WriteResult(errors) => Left(BadRequest("Some errors occured: " + errors.mkString("\n")))
+                }
+            })
+        }.getOrElse(nothing)
+      }
+
+      predicate(request).map {
+        r => Done[Array[Byte], Either[Result, String]](Left(r), Input.Empty)
+      }.getOrElse(uploadValidated)
+
+
   }
 
 
