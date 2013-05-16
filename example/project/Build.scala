@@ -4,18 +4,15 @@ import play.Project._
 
 object ApplicationBuild extends Build {
 
-  val appName         = "example"
-  val appVersion      = "1.0-SNAPSHOT"
+  val appName = "example"
+  val appVersion = "1.0-SNAPSHOT"
 
   val appDependencies = Seq(
-    // Add your project dependencies here,
-    jdbc,
-    anorm
+    "corespring" %% "s3-play-plugin" % "0.1-SNAPSHOT"
   )
 
-
   val main = play.Project(appName, appVersion, appDependencies).settings(
-    // Add your own project settings here      
+    resolvers += Resolver.url("Local Ivy Repository", url( "file://"+Path.userHome.absolutePath+"/.ivy2/local"))(Resolver.ivyStylePatterns)
   )
 
 }

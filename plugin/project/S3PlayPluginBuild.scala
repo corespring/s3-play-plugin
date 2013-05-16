@@ -26,8 +26,9 @@ object S3PlayPluginBuild extends Build {
     id = "s3-play-plugin",
     base = file("."),
     settings = Project.defaultSettings ++ Seq(
+      parallelExecution in(Test) := false,
       name := "s3-play-plugin",
-      organization := "org.corespring",
+      organization := "corespring",
       version := "0.1-SNAPSHOT",
       scalaVersion := "2.10.1",
       libraryDependencies ++= Dependencies.all,

@@ -32,7 +32,7 @@ with BeforeAndAfterAll {
 
   def testFileName = new GregorianCalendar().getTimeInMillis + "-s3-writer-spec-file.jpeg"
 
-  def this() = this(ActorSystem("S3WriterSpec"))
+  def this() = this(ActorSystem("S3ServiceSpec"))
 
   "s3 service" must {
     "work" in {

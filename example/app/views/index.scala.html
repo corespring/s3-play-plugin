@@ -1,7 +1,37 @@
 @(message: String)
 
 @main("Welcome to Play 2.1") {
-    
-    @play20.welcome(message)
-    
+
+<script type="text/javascript" src="//ajax.googleapis.com/ajax/libs/angularjs/1.0.6/angular.min.js"></script>
+<script type="text/javascript" src="/assets/javascripts/corespring-ng-components.js"></script>
+
+<script type="text/javascript">
+
+    angular.module('upload-example', ['cs.directives']);
+
+    angular.module('upload-example').controller('Controller', function($scope){
+
+        $scope.uploadUrl = function(file){
+            console.log("uploadUrl..." + file);
+            return "/upload/" + file.name;
+        }
+    });
+
+</script>
+<h1>Upload a file</h1>
+<div ng-app="upload-example" ng-controller="Controller">
+
+    <!--
+    fu-url (string or name of function on scope)
+    fu-name (the item name [only relevant for multipart upload])
+    fu-mode (raw|multipart [default: multipart])
+      raw places the data directly into the content body
+      multipart create the 'content flags' eg:  'content-disposition', 'boundary'
+    fu-max-size the max size in kB that a user can upload (default: 200)
+    -->
+
+    <button fu-url="uploadUrl()" fu-mode="raw" file-uploader>Upload</button>
+
+</div>
+
 }

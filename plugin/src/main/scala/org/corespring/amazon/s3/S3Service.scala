@@ -11,6 +11,7 @@ import org.corespring.amazon.s3.models._
 import play.api.libs.iteratee._
 import play.api.mvc._
 import scala.Some
+import scala.concurrent.Await
 
 trait S3Service {
   def download(bucket: String, fullKey: String, headers: Option[Headers] = None): Result
@@ -92,6 +93,8 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
 
   def nothing = Done[Array[Byte], Either[Result, String]](Left(BadRequest("?")), Input.Empty)
 
+  import akka.pattern._
+
   def upload(bucket: String, keyName: String): BodyParser[String] = BodyParser("S3Service") {
 
     request =>
@@ -102,6 +105,8 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
           val outputStream = new PipedOutputStream()
 
           val ref = actorSystem.actorOf(Props(new S3Writer(client, bucket, keyName, new PipedInputStream(outputStream), l)))
+
+          //We fire and forget here as we only check for errors at the end
           ref ! Begin
 
           val out: Iteratee[Array[Byte], Int] = {
@@ -114,8 +119,11 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
           out.mapDone({
             i =>
               outputStream.close()
-              ref ! EOF
-              Right(keyName)
+              val result = Await.result(ref ? Complete, 1.second)
+              result match {
+                case WriteResult(Seq()) => Right(keyName)
+                case WriteResult(errors) => Left(BadRequest("Some errors occured: " + errors.mkString("\n")))
+              }
           })
       }.getOrElse(nothing)
   }
