@@ -1,5 +1,15 @@
-A sample for the Typesafe Stack (http://typesafe.com/stack).
+# s3-play-plugin
 
-Scala sample project using Scala and SBT.
+A play plugin for uploading to Amazon S3 - gives you a BodyParser for streaming data to S3
 
-To run and test it use SBT invoke: 'sbt run'
+
+There are to sections:
+* example - a play 2.1.1 application
+* plugin - an sbt 12 plugin
+
+## Running the example
+
+To set it up you'll need to add the following conf file: example/conf/amazon-s3.conf in which you specify `amazonKey` and `amazonSecret`.
+You'll also need to publish-local in the plugin folder.
+
+
