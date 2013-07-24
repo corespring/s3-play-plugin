@@ -57,34 +57,24 @@ class S3WriterSpec(_system: ActorSystem) extends TestKit(_system) with ImplicitS
     val pipedInputStream : PipedInputStream = new PipedInputStream(outputStream)
     (system.actorOf(Props(new S3Writer(c,bucket, name, pipedInputStream, bytes.length))), outputStream, bytes)
   }
+
+
   import akka.pattern._
+
+
   "An S3Writer actor" must {
 
-    "upload the file" in {
-      val name = testFileName
-      val (ref,outputStream,bytes) = createRef(client, testBucket, name)
-      ref ! Begin
-      Thread.sleep(1000)
-      outputStream.write(bytes)
-      val out = Await.result(ref ? Complete, 6.seconds)
-      println("out: " + out)
-      out must equal(WriteResult(Seq()))
-
-      //Thread.sleep(5000)
-      //val uploadedFile = client.getObject(testBucket,name)
-      //uploadedFile.getKey must equal(name)
-    }
-    /*
     "return an error if there was an error" in {
-      val (ref,_,_) = createRef(client, "bad bucket", testFileName)
+      val name = testFileName
+      val (ref,os,bytes) = createRef(client, "bad bucket", name)
       ref ! Begin
-      expectMsgAllOf(true, WriteResult(Seq("An error occurred")))
+      expectMsgAllOf(BeginResult(false, Some(S3Writer.Message.GeneralError)))
     }
 
     "return an error if the bucket doesnt exist" in {
       val (ref,_,_) = createRef(client, "bad-bucket", testFileName)
       ref ! Begin
-      expectMsgAllOf(true, WriteResult(Seq("An error occurred")))
+      expectMsgAllOf(BeginResult(false, Some("The specified bucket does not exist")))
     }
 
     "return an error if the credentials are wrong" in {
@@ -94,8 +84,25 @@ class S3WriterSpec(_system: ActorSystem) extends TestKit(_system) with ImplicitS
       })
       val (ref,_,_) = createRef(badClient, "bad-bucket", testFileName)
       ref ! Begin
-      expectMsgAllOf(true, WriteResult(Seq("An error occurred")))
-    }*/
+      val badCredentials = "The AWS Access Key Id you provided does not exist in our records."
+      expectMsgAllOf(BeginResult(false, Some(badCredentials) ) )
+    }
+
+
+    "upload the file" in {
+      val name = testFileName
+      val (ref,outputStream,bytes) = createRef(client, testBucket, name)
+      //Fire and forget here - no result will return until the data is uploaded
+      ref ! Begin
+      outputStream.write(bytes, 0, bytes.size)
+      outputStream.close()
+      val out = Await.result(ref ? Complete, 6.seconds)
+
+      out must equal(WriteResult(List()))
+      val uploadedFile = client.getObject(testBucket,name)
+      uploadedFile.getKey must equal(name)
+    }
+
   }
 }
 

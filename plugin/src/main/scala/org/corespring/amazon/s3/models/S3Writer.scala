@@ -8,6 +8,7 @@ import java.io.InputStream
 import scala.concurrent.Future
 
 case object Begin
+case class BeginResult(success:Boolean, error : Option[String] = None)
 
 case object Complete
 
@@ -31,7 +32,7 @@ private[s3] class S3Writer(client: AmazonS3Client, bucket: String, keyName: Stri
 
   val log = Logging(context.system, this)
 
-  log.debug("inputStream: " + inputStream)
+  log.debug(">> inputStream: " + inputStream)
 
   def receive = {
     /**
@@ -42,25 +43,29 @@ private[s3] class S3Writer(client: AmazonS3Client, bucket: String, keyName: Stri
      */
     case Begin => Future {
       try {
-        log.debug("Begin upload..:" + bucket + " name: " + keyName)
+        log.debug(s"Begin upload: $bucket name: $keyName")
         val objectMetadata = new ObjectMetadata
         objectMetadata.setContentLength(contentLength)
+        log.debug(s"content length: $contentLength")
         val result = client.putObject(bucket, keyName, inputStream, objectMetadata)
         log.debug("client result: " + result)
-        true
+        BeginResult(true)
       } catch {
-        case e: Throwable => errors :+ e
+        case e: Throwable => BeginResult(false, Some(if(e.getMessage == null) S3Writer.Message.GeneralError else e.getMessage))
       }
     }.pipeTo(sender)
 
     case Complete => {
       try {
+        log.debug("Close the input stream")
         inputStream.close()
       }
       catch {
         case e: Throwable => errors :+ e
       }
-      sender ! WriteResult(errors.map(_.getMessage))
+      val msgs = errors.map(_.getMessage)
+      log.debug(s"Send errors: $msgs")
+      sender ! WriteResult(msgs)
     }
     case _ => throw new RuntimeException("Unknown command")
   }

@@ -1,11 +1,12 @@
 import sbt._
 import sbt.Keys._
 
-object S3PlayPluginBuild extends Build {
+object Build extends sbt.Build {
 
+  val playVersion = "2.1.3-RC1"
   object Dependencies {
-    val play = "play" %% "play" % "2.1.1" % "provided"
-    val playTest = "play" %% "play-test" % "2.1.1" % "test"
+    val play = "play" %% "play" % playVersion % "provided"
+    val playTest = "play" %% "play-test" % playVersion % "test"
     val aws = "com.amazonaws" % "aws-java-sdk" % "1.4.3"
     val config = "com.typesafe" % "config" % "1.0.0"
     val akkaTest = "com.typesafe.akka" %% "akka-testkit" % "2.1.0" % "test"
@@ -27,7 +28,7 @@ object S3PlayPluginBuild extends Build {
     settings = Project.defaultSettings ++ Seq(
       parallelExecution in(Test) := false,
       name := "s3-play-plugin",
-      organization := "corespring",
+      organization := "org.corespring",
       version := "0.1-SNAPSHOT",
       scalaVersion := "2.10.1",
       libraryDependencies ++= Dependencies.all,
