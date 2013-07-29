@@ -41,7 +41,7 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
   val duration = 10.seconds
   implicit val timeout: Timeout = Timeout(duration)
 
-  private val client: AmazonS3Client = new AmazonS3Client(new AWSCredentials {
+  protected val client: AmazonS3Client = new AmazonS3Client(new AWSCredentials {
     def getAWSAccessKeyId: String = key
 
     def getAWSSecretKey: String = secret
@@ -89,14 +89,19 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
     }
   }
 
+  private def emptyPredicate( r : RequestHeader) : Option[Result] = {
+    Logger.debug("Empty Predicate - return None")
+    None
+  }
 
-  def nothing = Done[Array[Byte], Either[Result, String]](Left(BadRequest("?")), Input.Empty)
-
-  import akka.pattern._
-
-  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result]) = (r => None)): BodyParser[String] = BodyParser("S3Service") {
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result]) = emptyPredicate): BodyParser[String] = BodyParser("S3Service") {
 
     request =>
+
+      def nothing(msg:String) = Done[Array[Byte], Either[Result, String]](Left(BadRequest(msg)), Input.Empty)
+
+      import akka.pattern._
+
 
       def uploadValidated = {
         request.headers.get(CONTENT_LENGTH).map(_.toInt).map {
@@ -126,11 +131,12 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
                   case WriteResult(errors) => Left(BadRequest("Some errors occured: " + errors.mkString("\n")))
                 }
             })
-        }.getOrElse(nothing)
+        }.getOrElse(nothing("no content length specified"))
       }
 
-      predicate(request).map {
-        r => Done[Array[Byte], Either[Result, String]](Left(r), Input.Empty)
+      predicate(request).map { r =>
+        Logger.debug(s"Predicate failed - returning: $r")
+        Done[Array[Byte], Either[Result, String]](Left(r), Input.Empty)
       }.getOrElse(uploadValidated)
 
 
