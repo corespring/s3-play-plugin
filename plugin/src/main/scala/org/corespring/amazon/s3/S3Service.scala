@@ -106,7 +106,7 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
       def uploadValidated = {
         request.headers.get(CONTENT_LENGTH).map(_.toInt).map {
           l =>
-            Logger.debug("Begin upload to: " + bucket + " " + keyName)
+            Logger.debug("[uploadValidated] Begin upload to: " + bucket + " " + keyName)
 
             val outputStream = new PipedOutputStream()
 
@@ -124,10 +124,14 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
             }
             out.mapDone({
               i =>
+                Logger.debug("[uploadValidated] mapDone")
                 outputStream.close()
                 val result = Await.result(ref ? Complete, 1.second)
                 result match {
-                  case WriteResult(Seq()) => Right(keyName)
+                  case WriteResult(Seq()) => {
+                    Logger.debug("[uploadValidated] No errors returned - return keyName")
+                    Right(keyName)
+                  }
                   case WriteResult(errors) => Left(BadRequest("Some errors occured: " + errors.mkString("\n")))
                 }
             })
