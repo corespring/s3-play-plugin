@@ -3,8 +3,8 @@ import sbt.Keys._
 
 object Build extends sbt.Build {
 
-  val playVersion = "2.1.3-RC1"
-  val ScalaVersion ="2.10.1"
+  val playVersion = "2.2.0"
+  val ScalaVersion ="2.10.2"
   val libName = "play-s3"
   val libOrganization = "org.corespring"
   val baseVersion = "0.1"
