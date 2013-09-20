@@ -1,1 +1,4 @@
 reference.conf
+.idea/
+.idea_modules/
+target/
