@@ -8,24 +8,26 @@ import com.amazonaws.services.s3.model.{GetObjectMetadataRequest, ObjectMetadata
 import com.amazonaws.{AmazonServiceException, AmazonClientException}
 import java.io.{PipedInputStream, PipedOutputStream}
 import org.corespring.amazon.s3.models._
+import play.api.libs.concurrent.Execution.Implicits._
 import play.api.libs.iteratee._
 import play.api.mvc._
 import scala.Some
+
 import scala.concurrent.Await
 
 trait S3Service {
-  def download(bucket: String, fullKey: String, headers: Option[Headers] = None): Result
+  def download(bucket: String, fullKey: String, headers: Option[Headers] = None): SimpleResult
 
-  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result]) = (r => None)): BodyParser[String]
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult]) = (r => None)): BodyParser[String]
 
   def delete(bucket: String, keyName: String): DeleteResponse
 
 }
 
 object EmptyS3Service extends S3Service {
-  def download(bucket: String, fullKey: String, headers: Option[Headers]): Result = ???
+  def download(bucket: String, fullKey: String, headers: Option[Headers]): SimpleResult = ???
 
-  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result])): BodyParser[String] = ???
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult])): BodyParser[String] = ???
 
   def delete(bucket: String, keyName: String): DeleteResponse = ???
 }
@@ -47,7 +49,7 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
     def getAWSSecretKey: String = secret
   })
 
-  def download(bucket: String, fullKey: String, headers: Option[Headers]): Result = {
+  def download(bucket: String, fullKey: String, headers: Option[Headers]): SimpleResult = {
 
     def nullOrEmpty(s: String) = s == null || s.isEmpty
 
@@ -55,7 +57,7 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
       BadRequest("Invalid key")
     } else {
 
-      def returnResultWithAsset(bucket: String, key: String): Result = {
+      def returnResultWithAsset(bucket: String, key: String): SimpleResult = {
         val s3Object: S3Object = client.getObject(bucket, fullKey) //get object. may result in exception
         val inputStream: InputStream = s3Object.getObjectContent
         val objContent: Enumerator[Array[Byte]] = Enumerator.fromStream(inputStream)
@@ -66,7 +68,7 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
         )
       }
 
-      def returnNotModifiedOrResultWithAsset(headers: Headers, bucket: String, key: String): Result = {
+      def returnNotModifiedOrResultWithAsset(headers: Headers, bucket: String, key: String): SimpleResult = {
         val metadata: ObjectMetadata = client.getObjectMetadata(new GetObjectMetadataRequest(bucket, fullKey))
         val ifNoneMatch = headers.get(IF_NONE_MATCH).getOrElse("")
         if (ifNoneMatch != "" && ifNoneMatch == metadata.getETag) Results.NotModified else returnResultWithAsset(bucket, fullKey)
@@ -89,16 +91,16 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
     }
   }
 
-  private def emptyPredicate( r : RequestHeader) : Option[Result] = {
+  private def emptyPredicate( r : RequestHeader) : Option[SimpleResult] = {
     Logger.debug("Empty Predicate - return None")
     None
   }
 
-  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result]) = emptyPredicate): BodyParser[String] = BodyParser("S3Service") {
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult]) = emptyPredicate): BodyParser[String] = BodyParser("S3Service") {
 
     request =>
 
-      def nothing(msg:String) = Done[Array[Byte], Either[Result, String]](Left(BadRequest(msg)), Input.Empty)
+      def nothing(msg:String) = Done[Array[Byte], Either[SimpleResult, String]](Left(BadRequest(msg)), Input.Empty)
 
       import akka.pattern._
 
@@ -140,7 +142,7 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
 
       predicate(request).map { r =>
         Logger.debug(s"Predicate failed - returning: $r")
-        Done[Array[Byte], Either[Result, String]](Left(r), Input.Empty)
+        Done[Array[Byte], Either[SimpleResult, String]](Left(r), Input.Empty)
       }.getOrElse(uploadValidated)
 
 

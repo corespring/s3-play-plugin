@@ -15,8 +15,8 @@ object Build extends sbt.Build {
   }
 
   object Dependencies {
-    val play = "play" %% "play" % playVersion % "provided"
-    val playTest = "play" %% "play-test" % playVersion % "test"
+    val play = "com.typesafe.play" %% "play" % playVersion % "provided"
+    val playTest = "com.typesafe.play" %% "play-test" % playVersion % "test"
     val aws = "com.amazonaws" % "aws-java-sdk" % "1.4.3"
     val config = "com.typesafe" % "config" % "1.0.0"
     val akkaTest = "com.typesafe.akka" %% "akka-testkit" % "2.1.0" % "test"
