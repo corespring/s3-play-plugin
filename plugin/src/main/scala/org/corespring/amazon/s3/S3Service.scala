@@ -133,7 +133,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
                   Await.result(future{
                     //this will block until all data is piped
                     client.putObject(bucket, keyName, inputStream, objectMetadata)
-                    inputStream.close()
+                    Logger.debug("S3Service.upload: completed upload")
                   }, duration)
                 } catch {
                   case e:Exception => {
@@ -144,16 +144,14 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
               }
               Iteratee.foldM[Array[Byte], Either[Result,String]](Right(keyName))((result,bytes) => {
                 future[Either[Result,String]] {
-                  try{
-                    result match {
-                      case Left(_) => result //an error occured, don't write anymore
-                      case Right(_) => {
-                        outputStream.write(bytes, 0, bytes.size)
-                        result
-                      }
+                  result match {
+                    case Left(_) => result //an error occured, don't write anymore
+                    case Right(_) => try{
+                      outputStream.write(bytes, 0, bytes.size)
+                      result
+                    } catch {
+                      case e:IOException => Left(writeError(e))
                     }
-                  } catch {
-                    case e:IOException => Left(writeError(e))
                   }
                 }
               })
