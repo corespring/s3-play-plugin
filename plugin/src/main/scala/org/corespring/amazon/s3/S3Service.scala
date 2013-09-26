@@ -128,35 +128,20 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
                 //this will block until all data is piped
                 client.putObject(bucket, keyName, inputStream, objectMetadata)
               }
-              def step(result: Either[Result,String])(input: Input[Array[Byte]]): Iteratee[Array[Byte], Either[Result,String]] = input match {
-                case Input.EOF => {
-                  try {
-                    outputStream.close(); inputStream.close()
-                    Done(result,Input.EOF)
-                  }catch{
-                    case e:IOException =>
-                      Logger.error("S3Service.upload: error closing stream(s): "+e.getMessage)
-                      Error(e.getMessage,Input.EOF)
-                  }
-                }
-                case Input.Empty => Cont(i => step(result)(i))
-                case Input.El(bytes) => {
-                  val f = future[Either[Result,String]] {
-                    try{
-                      outputStream.write(bytes, 0, bytes.size)
-                      result
-                    } catch {
-                      case e:IOException => {
-                        closeStreams()
-                        Logger.error("S3Service.upload: could not write to stream: "+e.getMessage)
-                        Left(BadRequest(e.getMessage))
-                      }
+              Iteratee.foldM[Array[Byte], Either[Result,String]](Right(keyName))((result,bytes) => {
+                future[Either[Result,String]] {
+                  try{
+                    outputStream.write(bytes, 0, bytes.size)
+                    result
+                  } catch {
+                    case e:IOException => {
+                      closeStreams()
+                      Logger.error("S3Service.upload: could not write to stream: "+e.getMessage)
+                      Left(BadRequest(e.getMessage))
                     }
                   }
-                  Iteratee.flatten(f.map(r => Cont(i => step(r)(i))))
                 }
-              }
-              (Cont[Array[Byte], Either[Result,String]](i => step(Right(keyName))(i)))
+              })
 
             } catch {
               case e: AmazonServiceException => nothing(e.getMessage, closeStreams)
