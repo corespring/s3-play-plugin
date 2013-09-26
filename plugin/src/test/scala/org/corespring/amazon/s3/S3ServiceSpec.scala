@@ -31,7 +31,7 @@ with BeforeAndAfterAll {
       val service = new ConcreteS3Service(key, secret)
       val filename = testFileName
       def toByteArray(s: InputStream): Array[Byte] = Stream.continually(s.read).takeWhile(-1 !=).map(_.toByte).toArray
-      val inputStream: InputStream = this.getClass.getResourceAsStream("/pug.jpg")
+      val inputStream: InputStream = this.getClass.getResourceAsStream("/cute-squirrel.jpeg")
       val byteArray = toByteArray(inputStream)
       val length: String = byteArray.size.toString
 

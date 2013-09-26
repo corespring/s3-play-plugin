@@ -138,7 +138,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
               }
               //this code is copied from the Iteratee.foldM source code in play.api.libs.iteratee.Iteratee
               def step(result: Either[Result,Int])(input: Input[Array[Byte]]): Iteratee[Array[Byte], Either[Result,Int]] = input match {
-                case Input.EOF => {
+                case Input.EOF => try{
                   Await.result(s3uploader,duration) match {
                     case Right(putObjectResult) => Done(result,Input.EOF)
                     case Left(e) => {
@@ -146,6 +146,8 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
                       Error("error occurred on s3 upload",Input.EOF)
                     }
                   }
+                } catch{
+                  case e:TimeoutException => Error("uploader timed out",Input.EOF)
                 }
                 case Input.Empty => Cont(i => step(result)(i))
                 case Input.El(bytes) => {
