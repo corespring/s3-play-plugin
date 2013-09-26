@@ -31,7 +31,7 @@ with BeforeAndAfterAll {
       val service = new ConcreteS3Service(key, secret)
       val filename = testFileName
       def toByteArray(s: InputStream): Array[Byte] = Stream.continually(s.read).takeWhile(-1 !=).map(_.toByte).toArray
-      val inputStream: InputStream = this.getClass.getResourceAsStream("/cute-squirrel.jpeg")
+      val inputStream: InputStream = this.getClass.getResourceAsStream("/pug.jpg")
       val byteArray = toByteArray(inputStream)
       val length: String = byteArray.size.toString
 
@@ -40,14 +40,13 @@ with BeforeAndAfterAll {
         AnyContentAsRaw(RawBuffer(byteArray.size, byteArray)))
 
       val enumerator = Enumerator[Array[Byte]](byteArray)
-      val parser: BodyParser[String] = service.upload(bucket, filename)
-      val iteratee: Iteratee[Array[Byte], Either[Result, String]] = parser.apply(request)
+      val parser: BodyParser[Int] = service.upload(bucket, filename)
+      val iteratee: Iteratee[Array[Byte], Either[Result, Int]] = parser.apply(request)
 
 
       import scala.concurrent.duration._
       val out = Await.result(enumerator.run(iteratee), 10.seconds)
-      Thread.sleep(5000)
-      out.right.get must equal(filename)
+      out.right.get must equal(byteArray.length)
     }
   }
 

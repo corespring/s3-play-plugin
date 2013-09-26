@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
 trait S3Service {
   def download(bucket: String, fullKey: String, headers: Option[Headers] = None): Result
 
-  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result]) = (r => None)): BodyParser[String]
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result]) = (r => None)): BodyParser[Int]
 
   def delete(bucket: String, keyName: String): DeleteResponse
 
@@ -28,7 +28,7 @@ trait S3Service {
 object EmptyS3Service extends S3Service {
   def download(bucket: String, fullKey: String, headers: Option[Headers]): Result = ???
 
-  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result])): BodyParser[String] = ???
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result])): BodyParser[Int] = ???
 
   def delete(bucket: String, keyName: String): DeleteResponse = ???
 }
@@ -96,22 +96,22 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
     None
   }
 
-  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result]) = emptyPredicate): BodyParser[String] = BodyParser("S3Service") {
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result]) = emptyPredicate): BodyParser[Int] = BodyParser("S3Service") {
 
     request =>
 
       def nothing(msg:String, cleanupFn:() => Unit = ()=>()) = {
         cleanupFn()
         Logger.error("S3Service.upload: "+msg)
-        Done[Array[Byte], Either[Result, String]](Left(BadRequest(msg)), Input.Empty)
+        Done[Array[Byte], Either[Result, Int]](Left(BadRequest(msg)), Input.Empty)
       }
 
-      def uploadValidated = {
+      def uploadValidated:Iteratee[Array[Byte], Either[Result,Int]] = {
         request.headers.get(CONTENT_LENGTH).map(_.toInt).map {
           contentLength =>
             Logger.debug("[uploadValidated] Begin upload to: " + bucket + " " + keyName)
             val outputStream = new PipedOutputStream()
-            var inputStream = new PipedInputStream()
+            val inputStream = new PipedInputStream()
             def closeStreams() = {
               try {
                 outputStream.close(); inputStream.close()
@@ -142,13 +142,13 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
                   }
                 }
               }
-              Iteratee.foldM[Array[Byte], Either[Result,String]](Right(keyName))((result,bytes) => {
-                future[Either[Result,String]] {
+              Iteratee.foldM[Array[Byte], Either[Result,Int]](Right(0))((result,bytes) => {
+                future[Either[Result,Int]] {
                   result match {
                     case Left(_) => result //an error occured, don't write anymore
-                    case Right(_) => try{
+                    case Right(total) => try{
                       outputStream.write(bytes, 0, bytes.size)
-                      result
+                      Right(total+bytes.size)
                     } catch {
                       case e:IOException => Left(writeError(e))
                     }
@@ -167,7 +167,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
 
       predicate(request).map { r =>
         Logger.debug(s"Predicate failed - returning: $r")
-        Done[Array[Byte], Either[Result, String]](Left(r), Input.Empty)
+        Done[Array[Byte], Either[Result, Int]](Left(r), Input.Empty)
       }.getOrElse(uploadValidated)
 
   }
