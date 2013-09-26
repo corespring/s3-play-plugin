@@ -3,7 +3,7 @@ package org.corespring.amazon.s3
 import akka.util.Timeout
 import com.amazonaws.auth.AWSCredentials
 import com.amazonaws.services.s3.AmazonS3Client
-import com.amazonaws.services.s3.model.{GetObjectMetadataRequest, ObjectMetadata, S3Object}
+import com.amazonaws.services.s3.model.{PutObjectResult, GetObjectMetadataRequest, ObjectMetadata, S3Object}
 import com.amazonaws.{AmazonServiceException, AmazonClientException}
 import java.io.{IOException, PipedInputStream, PipedOutputStream}
 import org.corespring.amazon.s3.models._
@@ -128,34 +128,42 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
               val inputStream = new PipedInputStream(outputStream)
               val objectMetadata = new ObjectMetadata
               objectMetadata.setContentLength(contentLength)
-              future{
+              val s3uploader:Future[Either[Exception,PutObjectResult]] = future{
                 try{
-                  Await.result(future{
-                    //this will block until all data is piped
-                    client.putObject(bucket, keyName, inputStream, objectMetadata)
-                    Logger.debug("S3Service.upload: completed upload")
-                  }, duration)
+                  //this will block until all data is piped
+                  Right(client.putObject(bucket, keyName, inputStream, objectMetadata))
                 } catch {
-                  case e:Exception => {
-                    Logger.error("error occured during upload: "+e.getMessage)
-                    closeStreams()
-                  }
+                  case e:Exception => Left(e)
                 }
               }
-              Iteratee.foldM[Array[Byte], Either[Result,Int]](Right(0))((result,bytes) => {
-                future[Either[Result,Int]] {
-                  result match {
-                    case Left(_) => result //an error occured, don't write anymore
-                    case Right(total) => try{
-                      outputStream.write(bytes, 0, bytes.size)
-                      Right(total+bytes.size)
-                    } catch {
-                      case e:IOException => Left(writeError(e))
+              //this code is copied from the Iteratee.foldM source code in play.api.libs.iteratee.Iteratee
+              def step(result: Either[Result,Int])(input: Input[Array[Byte]]): Iteratee[Array[Byte], Either[Result,Int]] = input match {
+                case Input.EOF => {
+                  Await.result(s3uploader,duration) match {
+                    case Right(putObjectResult) => Done(result,Input.EOF)
+                    case Left(e) => {
+                      Logger.error("error occurred on s3 upload: "+e.getMessage)
+                      Error("error occurred on s3 upload",Input.EOF)
                     }
                   }
                 }
-              })
-
+                case Input.Empty => Cont(i => step(result)(i))
+                case Input.El(bytes) => {
+                  val f = future[Either[Result,Int]] {
+                    result match {
+                      case Left(_) => result //an error occured, don't write anymore
+                      case Right(total) => try{
+                        outputStream.write(bytes, 0, bytes.size)
+                        Right(total+bytes.size)
+                      } catch {
+                        case e:IOException => Left(writeError(e))
+                      }
+                    }
+                  }
+                  Iteratee.flatten(f.map(r => Cont(i => step(r)(i))))
+                }
+              }
+              (Cont[Array[Byte], Either[Result,Int]](i => step(Right(0))(i)))
             } catch {
               case e: AmazonServiceException => nothing(e.getMessage, closeStreams)
               case e: AmazonClientException => nothing(e.getMessage, closeStreams)
