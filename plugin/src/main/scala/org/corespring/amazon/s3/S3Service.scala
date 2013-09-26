@@ -17,18 +17,18 @@ import play.api.libs.iteratee.Done
 import java.util.concurrent.TimeUnit
 
 trait S3Service {
-  def download(bucket: String, fullKey: String, headers: Option[Headers] = None): SimpleResult
+  def download(bucket: String, fullKey: String, headers: Option[Headers] = None): Result
 
-  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult]) = (r => None)): BodyParser[String]
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result]) = (r => None)): BodyParser[String]
 
   def delete(bucket: String, keyName: String): DeleteResponse
 
 }
 
 object EmptyS3Service extends S3Service {
-  def download(bucket: String, fullKey: String, headers: Option[Headers]): SimpleResult = ???
+  def download(bucket: String, fullKey: String, headers: Option[Headers]): Result = ???
 
-  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult])): BodyParser[String] = ???
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result])): BodyParser[String] = ???
 
   def delete(bucket: String, keyName: String): DeleteResponse = ???
 }
@@ -50,7 +50,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
     def getAWSSecretKey: String = secret
   })
 
-  def download(bucket: String, fullKey: String, headers: Option[Headers]): SimpleResult = {
+  def download(bucket: String, fullKey: String, headers: Option[Headers]): Result = {
 
     def nullOrEmpty(s: String) = s == null || s.isEmpty
 
@@ -58,7 +58,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
       BadRequest("Invalid key")
     } else {
 
-      def returnResultWithAsset(bucket: String, key: String): SimpleResult = {
+      def returnResultWithAsset(bucket: String, key: String): Result = {
         val s3Object: S3Object = client.getObject(bucket, fullKey) //get object. may result in exception
         val inputStream: InputStream = s3Object.getObjectContent
         val objContent: Enumerator[Array[Byte]] = Enumerator.fromStream(inputStream)
@@ -69,7 +69,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
         )
       }
 
-      def returnNotModifiedOrResultWithAsset(headers: Headers, bucket: String, key: String): SimpleResult = {
+      def returnNotModifiedOrResultWithAsset(headers: Headers, bucket: String, key: String): Result = {
         val metadata: ObjectMetadata = client.getObjectMetadata(new GetObjectMetadataRequest(bucket, fullKey))
         val ifNoneMatch = headers.get(IF_NONE_MATCH).getOrElse("")
         if (ifNoneMatch != "" && ifNoneMatch == metadata.getETag) Results.NotModified else returnResultWithAsset(bucket, fullKey)
@@ -92,19 +92,19 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
     }
   }
 
-  private def emptyPredicate( r : RequestHeader) : Option[SimpleResult] = {
+  private def emptyPredicate( r : RequestHeader) : Option[Result] = {
     Logger.debug("Empty Predicate - return None")
     None
   }
 
-  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult]) = emptyPredicate): BodyParser[String] = BodyParser("S3Service") {
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result]) = emptyPredicate): BodyParser[String] = BodyParser("S3Service") {
 
     request =>
 
       def nothing(msg:String, cleanupFn:() => Unit = ()=>()) = {
         cleanupFn()
         Logger.error("S3Service.upload: "+msg)
-        Done[Array[Byte], Either[SimpleResult, String]](Left(BadRequest(msg)), Input.Empty)
+        Done[Array[Byte], Either[Result, String]](Left(BadRequest(msg)), Input.Empty)
       }
 
       def uploadValidated = {
@@ -128,7 +128,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
                 //this will block until all data is piped
                 client.putObject(bucket, keyName, inputStream, objectMetadata)
               }
-              def step(result: Either[SimpleResult,String])(input: Input[Array[Byte]]): Iteratee[Array[Byte], Either[SimpleResult,String]] = input match {
+              def step(result: Either[Result,String])(input: Input[Array[Byte]]): Iteratee[Array[Byte], Either[Result,String]] = input match {
                 case Input.EOF => {
                   try {
                     outputStream.close(); inputStream.close()
@@ -141,7 +141,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
                 }
                 case Input.Empty => Cont(i => step(result)(i))
                 case Input.El(bytes) => {
-                  val f = future[Either[SimpleResult,String]] {
+                  val f = future[Either[Result,String]] {
                     try{
                       outputStream.write(bytes, 0, bytes.size)
                       result
@@ -156,7 +156,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
                   Iteratee.flatten(f.map(r => Cont(i => step(r)(i))))
                 }
               }
-              (Cont[Array[Byte], Either[SimpleResult,String]](i => step(Right(keyName))(i)))
+              (Cont[Array[Byte], Either[Result,String]](i => step(Right(keyName))(i)))
 
             } catch {
               case e: AmazonServiceException => nothing(e.getMessage, closeStreams)
@@ -170,7 +170,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
 
       predicate(request).map { r =>
         Logger.debug(s"Predicate failed - returning: $r")
-        Done[Array[Byte], Either[SimpleResult, String]](Left(r), Input.Empty)
+        Done[Array[Byte], Either[Result, String]](Left(r), Input.Empty)
       }.getOrElse(uploadValidated)
 
   }

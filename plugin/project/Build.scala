@@ -3,8 +3,8 @@ import sbt.Keys._
 
 object Build extends sbt.Build {
 
-  val playVersion = "2.2.0"
-  val ScalaVersion ="2.10.2"
+  val playVersion = "2.1.3-RC1"
+  val ScalaVersion ="2.10.1"
   val libName = "play-s3"
   val libOrganization = "org.corespring"
   val baseVersion = "0.1"
@@ -15,8 +15,8 @@ object Build extends sbt.Build {
   }
 
   object Dependencies {
-    val play = "com.typesafe.play" %% "play" % playVersion % "provided"
-    val playTest = "com.typesafe.play" %% "play-test" % playVersion % "test"
+    val play = "play" %% "play" % playVersion % "provided"
+    val playTest = "play" %% "play-test" % playVersion % "test"
     val aws = "com.amazonaws" % "aws-java-sdk" % "1.4.3"
     val config = "com.typesafe" % "config" % "1.0.0"
     val akkaTest = "com.typesafe.akka" %% "akka-testkit" % "2.1.0" % "test"
