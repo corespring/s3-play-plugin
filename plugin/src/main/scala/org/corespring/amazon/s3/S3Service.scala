@@ -1,38 +1,39 @@
 package org.corespring.amazon.s3
 
-import akka.actor.{ActorSystem, Props}
 import akka.util.Timeout
 import com.amazonaws.auth.AWSCredentials
 import com.amazonaws.services.s3.AmazonS3Client
-import com.amazonaws.services.s3.model.{GetObjectMetadataRequest, ObjectMetadata, S3Object}
+import com.amazonaws.services.s3.model.{PutObjectResult, GetObjectMetadataRequest, ObjectMetadata, S3Object}
 import com.amazonaws.{AmazonServiceException, AmazonClientException}
-import java.io.{PipedInputStream, PipedOutputStream}
+import java.io.{IOException, PipedInputStream, PipedOutputStream}
 import org.corespring.amazon.s3.models._
 import play.api.libs.concurrent.Execution.Implicits._
 import play.api.libs.iteratee._
 import play.api.mvc._
 import scala.Some
+import scala.concurrent._
 
-import scala.concurrent.Await
+import play.api.libs.iteratee.Done
+import java.util.concurrent.TimeUnit
 
 trait S3Service {
-  def download(bucket: String, fullKey: String, headers: Option[Headers] = None): SimpleResult
+  def download(bucket: String, fullKey: String, headers: Option[Headers] = None): Result
 
-  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult]) = (r => None)): BodyParser[String]
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result]) = (r => None)): BodyParser[Int]
 
   def delete(bucket: String, keyName: String): DeleteResponse
 
 }
 
 object EmptyS3Service extends S3Service {
-  def download(bucket: String, fullKey: String, headers: Option[Headers]): SimpleResult = ???
+  def download(bucket: String, fullKey: String, headers: Option[Headers]): Result = ???
 
-  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult])): BodyParser[String] = ???
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result])): BodyParser[Int] = ???
 
   def delete(bucket: String, keyName: String): DeleteResponse = ???
 }
 
-class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: ActorSystem) extends S3Service {
+class ConcreteS3Service(key: String, secret: String) extends S3Service {
 
   import java.io.InputStream
   import log.Logger
@@ -49,15 +50,14 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
     def getAWSSecretKey: String = secret
   })
 
-  def download(bucket: String, fullKey: String, headers: Option[Headers]): SimpleResult = {
+  def download(bucket: String, fullKey: String, headers: Option[Headers]): Result = {
 
     def nullOrEmpty(s: String) = s == null || s.isEmpty
 
     if (nullOrEmpty(fullKey) || nullOrEmpty(bucket)) {
       BadRequest("Invalid key")
     } else {
-
-      def returnResultWithAsset(bucket: String, key: String): SimpleResult = {
+      def returnResultWithAsset(bucket: String, key: String): Result = {
         val s3Object: S3Object = client.getObject(bucket, fullKey) //get object. may result in exception
         val inputStream: InputStream = s3Object.getObjectContent
         val objContent: Enumerator[Array[Byte]] = Enumerator.fromStream(inputStream)
@@ -68,7 +68,7 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
         )
       }
 
-      def returnNotModifiedOrResultWithAsset(headers: Headers, bucket: String, key: String): SimpleResult = {
+      def returnNotModifiedOrResultWithAsset(headers: Headers, bucket: String, key: String): Result = {
         val metadata: ObjectMetadata = client.getObjectMetadata(new GetObjectMetadataRequest(bucket, fullKey))
         val ifNoneMatch = headers.get(IF_NONE_MATCH).getOrElse("")
         if (ifNoneMatch != "" && ifNoneMatch == metadata.getETag) Results.NotModified else returnResultWithAsset(bucket, fullKey)
@@ -91,60 +91,94 @@ class ConcreteS3Service(key: String, secret: String)(implicit actorSystem: Actor
     }
   }
 
-  private def emptyPredicate( r : RequestHeader) : Option[SimpleResult] = {
+  private def emptyPredicate( r : RequestHeader) : Option[Result] = {
     Logger.debug("Empty Predicate - return None")
     None
   }
 
-  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult]) = emptyPredicate): BodyParser[String] = BodyParser("S3Service") {
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result]) = emptyPredicate): BodyParser[Int] = BodyParser("S3Service") {
 
     request =>
 
-      def nothing(msg:String) = Done[Array[Byte], Either[SimpleResult, String]](Left(BadRequest(msg)), Input.Empty)
+      def nothing(msg:String, cleanupFn:() => Unit = ()=>()) = {
+        cleanupFn()
+        Logger.error("S3Service.upload: "+msg)
+        Done[Array[Byte], Either[Result, Int]](Left(BadRequest(msg)), Input.Empty)
+      }
 
-      import akka.pattern._
-
-
-      def uploadValidated = {
+      def uploadValidated:Iteratee[Array[Byte], Either[Result,Int]] = {
         request.headers.get(CONTENT_LENGTH).map(_.toInt).map {
-          l =>
+          contentLength =>
             Logger.debug("[uploadValidated] Begin upload to: " + bucket + " " + keyName)
-
             val outputStream = new PipedOutputStream()
-
-            val ref = actorSystem.actorOf(Props(new S3Writer(client, bucket, keyName, new PipedInputStream(outputStream), l)))
-
-            //We fire and forget here as we only check for errors at the end
-            ref ! Begin
-
-            val out: Iteratee[Array[Byte], Int] = {
-              Iteratee.fold[Array[Byte], Int](0) {
-                (length, bytes) =>
-                  outputStream.write(bytes, 0, bytes.size)
-                  length + bytes.size
+            val inputStream = new PipedInputStream()
+            def closeStreams() = {
+              try {
+                outputStream.close(); inputStream.close()
+              }catch{
+                case e:IOException =>
               }
             }
-            out.mapDone({
-              i =>
-                Logger.debug("[uploadValidated] mapDone")
-                outputStream.close()
-                val result = Await.result(ref ? Complete, 1.second)
-                result match {
-                  case WriteResult(Seq()) => {
-                    Logger.debug("[uploadValidated] No errors returned - return keyName")
-                    Right(keyName)
-                  }
-                  case WriteResult(errors) => Left(BadRequest("Some errors occured: " + errors.mkString("\n")))
+            def writeError(e:Throwable):Result = {
+              closeStreams()
+              Logger.error("S3Service.upload: could not write to stream: "+e.getMessage)
+              BadRequest(e.getMessage)
+            }
+            try {
+              val inputStream = new PipedInputStream(outputStream)
+              val objectMetadata = new ObjectMetadata
+              objectMetadata.setContentLength(contentLength)
+              val s3uploader:Future[Either[Exception,PutObjectResult]] = future{
+                try{
+                  //this will block until all data is piped
+                  Right(client.putObject(bucket, keyName, inputStream, objectMetadata))
+                } catch {
+                  case e:Exception => Left(e)
                 }
-            })
+              }
+              //this code is copied from the Iteratee.foldM source code in play.api.libs.iteratee.Iteratee
+              def step(result: Either[Result,Int])(input: Input[Array[Byte]]): Iteratee[Array[Byte], Either[Result,Int]] = input match {
+                case Input.EOF => try{
+                  Await.result(s3uploader,duration) match {
+                    case Right(putObjectResult) => Done(result,Input.EOF)
+                    case Left(e) => {
+                      Logger.error("error occurred on s3 upload: "+e.getMessage)
+                      Error("error occurred on s3 upload",Input.EOF)
+                    }
+                  }
+                } catch{
+                  case e:TimeoutException => Error("uploader timed out",Input.EOF)
+                }
+                case Input.Empty => Cont(i => step(result)(i))
+                case Input.El(bytes) => {
+                  val f = future[Either[Result,Int]] {
+                    result match {
+                      case Left(_) => result //an error occured, don't write anymore
+                      case Right(total) => try{
+                        outputStream.write(bytes, 0, bytes.size)
+                        Right(total+bytes.size)
+                      } catch {
+                        case e:IOException => Left(writeError(e))
+                      }
+                    }
+                  }
+                  Iteratee.flatten(f.map(r => Cont(i => step(r)(i))))
+                }
+              }
+              (Cont[Array[Byte], Either[Result,Int]](i => step(Right(0))(i)))
+            } catch {
+              case e: AmazonServiceException => nothing(e.getMessage, closeStreams)
+              case e: AmazonClientException => nothing(e.getMessage, closeStreams)
+              case e: IOException => nothing(e.getMessage, closeStreams)
+            }
+
         }.getOrElse(nothing("no content length specified"))
       }
 
       predicate(request).map { r =>
         Logger.debug(s"Predicate failed - returning: $r")
-        Done[Array[Byte], Either[SimpleResult, String]](Left(r), Input.Empty)
+        Done[Array[Byte], Either[Result, Int]](Left(r), Input.Empty)
       }.getOrElse(uploadValidated)
-
 
   }
 
