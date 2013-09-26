@@ -106,22 +106,20 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
         Done[Array[Byte], Either[SimpleResult, String]](Left(BadRequest(msg)), Input.Empty)
       }
 
-      import akka.pattern._
-
-
       def uploadValidated = {
         request.headers.get(CONTENT_LENGTH).map(_.toInt).map {
           contentLength =>
             Logger.debug("[uploadValidated] Begin upload to: " + bucket + " " + keyName)
-
+            val outputStream = new PipedOutputStream()
+            val inputStream = new PipedInputStream(outputStream)
             try {
-              val outputStream = new PipedOutputStream()
+              inputStream.connect(outputStream);
               val objectMetadata = new ObjectMetadata
               objectMetadata.setContentLength(contentLength)
-              val inputStream = new PipedInputStream(outputStream)
-              Await.result(future{
+              future{
+                //this will block until all data is piped
                 client.putObject(bucket, keyName, inputStream, objectMetadata)
-              },Duration(60,TimeUnit.SECONDS))
+              }
               def step(result: Either[SimpleResult,String])(input: Input[Array[Byte]]): Iteratee[Array[Byte], Either[SimpleResult,String]] = input match {
                 case Input.EOF => {
                   try {
@@ -130,7 +128,6 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
                   }catch{
                     case e:IOException =>
                       Logger.error("S3Service.upload: error closing stream(s): "+e.getMessage)
-                      Error(e.getMessage,Input.EOF)
                       Error(e.getMessage,Input.EOF)
                   }
                 }
@@ -162,6 +159,12 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
               case e: AmazonClientException => nothing(e.getMessage)
               case e: IOException => nothing(e.getMessage)
               case e: TimeoutException => nothing("S3Service.upload: could not connect to s3 services")
+            } finally {
+              try {
+                outputStream.close(); inputStream.close()
+              }catch{
+                case e:IOException =>
+              }
             }
 
         }.getOrElse(nothing("no content length specified"))
