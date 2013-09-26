@@ -1,7 +1,5 @@
 package org.corespring.amazon.s3
 
-
-import akka.actor.ActorSystem
 import akka.testkit.ImplicitSender
 import akka.testkit.TestKit
 import com.typesafe.config.ConfigFactory
@@ -16,31 +14,21 @@ import play.api.libs.iteratee.{Enumerator, Iteratee}
 import play.api.mvc._
 import play.api.test.FakeHeaders
 import play.api.test.FakeRequest
-import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Await
 
-class S3ServiceSpec(_system: ActorSystem) extends TestKit(_system) with ImplicitSender
-with WordSpec
+class S3ServiceSpec extends WordSpec
 with MustMatchers
 with BeforeAndAfterAll {
 
-  override def afterAll() {
-    system.shutdown()
-  }
-
-  def inputStream: InputStream = this.getClass.getResourceAsStream("/cute-squirrel.jpeg")
-
   def testFileName = new GregorianCalendar().getTimeInMillis + "-s3-writer-spec-file.jpeg"
-
-  def this() = this(ActorSystem("S3ServiceSpec"))
 
   "s3 service" must {
     "work" in {
 
-      val key = ConfigFactory.load().getString("amazonKey")
-      val secret = ConfigFactory.load().getString("amazonSecret")
-      val bucket = ConfigFactory.load().getString("testBucket")
-      val service = new ConcreteS3Service(key, secret)(system)
+      val key = sys.env("ENV_AMAZON_ACCESS_KEY")
+      val secret = sys.env("ENV_AMAZON_ACCESS_SECRET")
+      val bucket = sys.env("ENV_AMAZON_TEST_BUCKET")
+      val service = new ConcreteS3Service(key, secret)
       val filename = testFileName
       def toByteArray(s: InputStream): Array[Byte] = Stream.continually(s.read).takeWhile(-1 !=).map(_.toByte).toArray
       val inputStream: InputStream = this.getClass.getResourceAsStream("/cute-squirrel.jpeg")
