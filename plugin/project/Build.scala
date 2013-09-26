@@ -42,7 +42,16 @@ object Build extends sbt.Build {
       version := libVersion,
       scalaVersion := ScalaVersion,
       libraryDependencies ++= Dependencies.all,
-      resolvers ++= Resolvers.all
+      resolvers ++= Resolvers.all,
+      credentials += Credentials(Path.userHome / ".ivy2" / ".credentials"),
+      publishTo <<= version {
+        (v: String) =>
+          def isSnapshot = v.trim.contains("-")
+          val base = "http://repository.corespring.org/artifactory"
+          val repoType = if (isSnapshot) "snapshot" else "release"
+          val finalPath = base + "/ivy-" + repoType + "s"
+          Some( "Artifactory Realm" at finalPath )
+      }
     )
   )
 }
