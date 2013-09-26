@@ -101,7 +101,8 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
 
     request =>
 
-      def nothing(msg:String) = {
+      def nothing(msg:String, cleanupFn:() => Unit = ()=>()) = {
+        cleanupFn()
         Logger.error("S3Service.upload: "+msg)
         Done[Array[Byte], Either[SimpleResult, String]](Left(BadRequest(msg)), Input.Empty)
       }
@@ -111,9 +112,16 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
           contentLength =>
             Logger.debug("[uploadValidated] Begin upload to: " + bucket + " " + keyName)
             val outputStream = new PipedOutputStream()
-            val inputStream = new PipedInputStream(outputStream)
+            var inputStream = new PipedInputStream()
+            def closeStreams() = {
+              try {
+                outputStream.close(); inputStream.close()
+              }catch{
+                case e:IOException =>
+              }
+            }
             try {
-              inputStream.connect(outputStream);
+              val inputStream = new PipedInputStream(outputStream)
               val objectMetadata = new ObjectMetadata
               objectMetadata.setContentLength(contentLength)
               future{
@@ -139,11 +147,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
                       result
                     } catch {
                       case e:IOException => {
-                        try {
-                          outputStream.close(); inputStream.close()
-                        }catch{
-                          case e:IOException =>
-                        }
+                        closeStreams()
                         Logger.error("S3Service.upload: could not write to stream: "+e.getMessage)
                         Left(BadRequest(e.getMessage))
                       }
@@ -155,16 +159,10 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
               (Cont[Array[Byte], Either[SimpleResult,String]](i => step(Right(keyName))(i)))
 
             } catch {
-              case e: AmazonServiceException => nothing(e.getMessage)
-              case e: AmazonClientException => nothing(e.getMessage)
-              case e: IOException => nothing(e.getMessage)
-              case e: TimeoutException => nothing("S3Service.upload: could not connect to s3 services")
-            } finally {
-              try {
-                outputStream.close(); inputStream.close()
-              }catch{
-                case e:IOException =>
-              }
+              case e: AmazonServiceException => nothing(e.getMessage, closeStreams)
+              case e: AmazonClientException => nothing(e.getMessage, closeStreams)
+              case e: IOException => nothing(e.getMessage, closeStreams)
+              case e: TimeoutException => nothing("S3Service.upload: could not connect to s3 services", closeStreams)
             }
 
         }.getOrElse(nothing("no content length specified"))
