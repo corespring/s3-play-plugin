@@ -25,9 +25,9 @@ with BeforeAndAfterAll {
   "s3 service" must {
     "work" in {
 
-      val key = sys.env("ENV_AMAZON_ACCESS_KEY")
-      val secret = sys.env("ENV_AMAZON_ACCESS_SECRET")
-      val bucket = sys.env("ENV_AMAZON_TEST_BUCKET")
+      val key = ConfigFactory.load().getString("amazonKey")
+      val secret = ConfigFactory.load().getString("amazonSecret")
+      val bucket = ConfigFactory.load().getString("testBucket")
       val service = new ConcreteS3Service(key, secret)
       val filename = testFileName
       def toByteArray(s: InputStream): Array[Byte] = Stream.continually(s.read).takeWhile(-1 !=).map(_.toByte).toArray
