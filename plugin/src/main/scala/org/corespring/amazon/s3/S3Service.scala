@@ -57,7 +57,6 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
     if (nullOrEmpty(fullKey) || nullOrEmpty(bucket)) {
       BadRequest("Invalid key")
     } else {
-
       def returnResultWithAsset(bucket: String, key: String): Result = {
         val s3Object: S3Object = client.getObject(bucket, fullKey) //get object. may result in exception
         val inputStream: InputStream = s3Object.getObjectContent
@@ -120,25 +119,41 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
                 case e:IOException =>
               }
             }
+            def writeError(e:Throwable):Result = {
+              closeStreams()
+              Logger.error("S3Service.upload: could not write to stream: "+e.getMessage)
+              BadRequest(e.getMessage)
+            }
             try {
               val inputStream = new PipedInputStream(outputStream)
               val objectMetadata = new ObjectMetadata
               objectMetadata.setContentLength(contentLength)
               future{
-                //this will block until all data is piped
-                client.putObject(bucket, keyName, inputStream, objectMetadata)
+                try{
+                  Await.result(future{
+                    //this will block until all data is piped
+                    client.putObject(bucket, keyName, inputStream, objectMetadata)
+                    inputStream.close()
+                  }, duration)
+                } catch {
+                  case e:Exception => {
+                    Logger.error("error occured during upload: "+e.getMessage)
+                    closeStreams()
+                  }
+                }
               }
               Iteratee.foldM[Array[Byte], Either[Result,String]](Right(keyName))((result,bytes) => {
                 future[Either[Result,String]] {
                   try{
-                    outputStream.write(bytes, 0, bytes.size)
-                    result
-                  } catch {
-                    case e:IOException => {
-                      closeStreams()
-                      Logger.error("S3Service.upload: could not write to stream: "+e.getMessage)
-                      Left(BadRequest(e.getMessage))
+                    result match {
+                      case Left(_) => result //an error occured, don't write anymore
+                      case Right(_) => {
+                        outputStream.write(bytes, 0, bytes.size)
+                        result
+                      }
                     }
+                  } catch {
+                    case e:IOException => Left(writeError(e))
                   }
                 }
               })
@@ -147,7 +162,6 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
               case e: AmazonServiceException => nothing(e.getMessage, closeStreams)
               case e: AmazonClientException => nothing(e.getMessage, closeStreams)
               case e: IOException => nothing(e.getMessage, closeStreams)
-              case e: TimeoutException => nothing("S3Service.upload: could not connect to s3 services", closeStreams)
             }
 
         }.getOrElse(nothing("no content length specified"))
