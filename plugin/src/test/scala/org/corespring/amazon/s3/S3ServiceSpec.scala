@@ -23,8 +23,9 @@ with BeforeAndAfterAll {
   def testFileName = new GregorianCalendar().getTimeInMillis + "-s3-writer-spec-file.jpeg"
 
   "s3 service" must {
-    "work" in {
+    "upload, download, and delete" in {
 
+      //set up
       val key = ConfigFactory.load().getString("amazonKey")
       val secret = ConfigFactory.load().getString("amazonSecret")
       val bucket = ConfigFactory.load().getString("testBucket")
@@ -35,10 +36,10 @@ with BeforeAndAfterAll {
       val byteArray = toByteArray(inputStream)
       val length: String = byteArray.size.toString
 
+      //upload
       val request: Request[AnyContent] = FakeRequest("?", "?",
         FakeHeaders(Seq(CONTENT_LENGTH.toString -> Seq(length))),
         AnyContentAsRaw(RawBuffer(byteArray.size, byteArray)))
-
       val enumerator = Enumerator[Array[Byte]](byteArray)
       val parser: BodyParser[Int] = service.upload(bucket, filename)
       val iteratee: Iteratee[Array[Byte], Either[Result, Int]] = parser.apply(request)
@@ -47,6 +48,26 @@ with BeforeAndAfterAll {
       import scala.concurrent.duration._
       val out = Await.result(enumerator.run(iteratee), 10.seconds)
       out.right.get must equal(byteArray.length)
+
+      //download
+      val result = service.download(bucket, filename).asInstanceOf[SimpleResult[Array[Byte]]]
+      val consumer = Iteratee.fold[Array[Byte],Array[Byte]](Array())((output,input) => {
+        output ++ input
+      })
+      val downloadedBytes:Array[Byte] = Await.result(Await.result(result.body(consumer),10.seconds).run,10.seconds)
+      def compareBytes:Boolean = {
+        if(downloadedBytes.length == byteArray.length){
+          var result = true
+          for(i <- 0 to downloadedBytes.length-1){
+            result && (downloadedBytes(i) == byteArray(i))
+          }
+          result
+        } else false
+      }
+      compareBytes === true
+
+      //delete
+
     }
   }
 
