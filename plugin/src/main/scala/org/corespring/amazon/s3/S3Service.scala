@@ -26,7 +26,7 @@ trait S3Service {
 }
 
 object EmptyS3Service extends S3Service {
-  def download(bucket: String, fullKey: String, headers: Option[Headers]): Result = ???
+  def download(bucket: String, fullKey: String, headers: Option[Headers]): SimpleResult = ???
 
   def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult])): BodyParser[Int] = ???
 
@@ -57,7 +57,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
     if (nullOrEmpty(fullKey) || nullOrEmpty(bucket)) {
       BadRequest("Invalid key")
     } else {
-      def returnResultWithAsset(bucket: String, key: String): Result = {
+      def returnResultWithAsset(bucket: String, key: String): SimpleResult = {
         val s3Object: S3Object = client.getObject(bucket, fullKey) //get object. may result in exception
         val inputStream: InputStream = s3Object.getObjectContent
         val objContent: Enumerator[Array[Byte]] = Enumerator.fromStream(inputStream)
@@ -68,7 +68,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
         )
       }
 
-      def returnNotModifiedOrResultWithAsset(headers: Headers, bucket: String, key: String): Result = {
+      def returnNotModifiedOrResultWithAsset(headers: Headers, bucket: String, key: String): SimpleResult = {
         val metadata: ObjectMetadata = client.getObjectMetadata(new GetObjectMetadataRequest(bucket, fullKey))
         val ifNoneMatch = headers.get(IF_NONE_MATCH).getOrElse("")
         if (ifNoneMatch != "" && ifNoneMatch == metadata.getETag) Results.NotModified else returnResultWithAsset(bucket, fullKey)
