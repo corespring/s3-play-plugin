@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
 trait S3Service {
   def download(bucket: String, fullKey: String, headers: Option[Headers] = None): Result
 
-  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result]) = (r => None)): BodyParser[Int]
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult]) = (r => None)): BodyParser[Int]
 
   def delete(bucket: String, keyName: String): DeleteResponse
 
@@ -28,7 +28,7 @@ trait S3Service {
 object EmptyS3Service extends S3Service {
   def download(bucket: String, fullKey: String, headers: Option[Headers]): Result = ???
 
-  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result])): BodyParser[Int] = ???
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult])): BodyParser[Int] = ???
 
   def delete(bucket: String, keyName: String): DeleteResponse = ???
 }
@@ -91,22 +91,22 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
     }
   }
 
-  private def emptyPredicate( r : RequestHeader) : Option[Result] = {
+  private def emptyPredicate( r : RequestHeader) : Option[SimpleResult] = {
     Logger.debug("Empty Predicate - return None")
     None
   }
 
-  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[Result]) = emptyPredicate): BodyParser[Int] = BodyParser("S3Service") {
+  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult]) = emptyPredicate): BodyParser[Int] = BodyParser("S3Service") {
 
     request =>
 
-      def nothing(msg:String, cleanupFn:() => Unit = ()=>()) = {
+      def nothing(msg:String, cleanupFn:() => Unit = ()=>()) : play.api.libs.iteratee.Iteratee[Array[Byte],Either[play.api.mvc.SimpleResult,Int]] = {
         cleanupFn()
         Logger.error("S3Service.upload: "+msg)
-        Done[Array[Byte], Either[Result, Int]](Left(BadRequest(msg)), Input.Empty)
+        Done[Array[Byte], Either[SimpleResult, Int]](Left(BadRequest(msg)), Input.Empty)
       }
 
-      def uploadValidated:Iteratee[Array[Byte], Either[Result,Int]] = {
+      def uploadValidated:Iteratee[Array[Byte], Either[SimpleResult,Int]] = {
         request.headers.get(CONTENT_LENGTH).map(_.toInt).map {
           contentLength =>
             Logger.debug("[uploadValidated] Begin upload to: " + bucket + " " + keyName)
@@ -119,7 +119,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
                 case e:IOException =>
               }
             }
-            def writeError(e:Throwable):Result = {
+            def writeError(e:Throwable):SimpleResult = {
               closeStreams()
               Logger.error("S3Service.upload: could not write to stream: "+e.getMessage)
               BadRequest(e.getMessage)
@@ -137,7 +137,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
                 }
               }
               //this code is copied from the Iteratee.foldM source code in play.api.libs.iteratee.Iteratee
-              def step(result: Either[Result,Int])(input: Input[Array[Byte]]): Iteratee[Array[Byte], Either[Result,Int]] = input match {
+              def step(result: Either[SimpleResult,Int])(input: Input[Array[Byte]]): Iteratee[Array[Byte], Either[SimpleResult,Int]] = input match {
                 case Input.EOF => try{
                   Await.result(s3uploader,duration) match {
                     case Right(putObjectResult) => Done(result,Input.EOF)
@@ -151,7 +151,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
                 }
                 case Input.Empty => Cont(i => step(result)(i))
                 case Input.El(bytes) => {
-                  val f = future[Either[Result,Int]] {
+                  val f = future[Either[SimpleResult,Int]] {
                     result match {
                       case Left(_) => result //an error occured, don't write anymore
                       case Right(total) => try{
@@ -165,7 +165,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
                   Iteratee.flatten(f.map(r => Cont(i => step(r)(i))))
                 }
               }
-              (Cont[Array[Byte], Either[Result,Int]](i => step(Right(0))(i)))
+              (Cont[Array[Byte], Either[SimpleResult,Int]](i => step(Right(0))(i)))
             } catch {
               case e: AmazonServiceException => nothing(e.getMessage, closeStreams)
               case e: AmazonClientException => nothing(e.getMessage, closeStreams)
@@ -177,7 +177,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
 
       predicate(request).map { r =>
         Logger.debug(s"Predicate failed - returning: $r")
-        Done[Array[Byte], Either[Result, Int]](Left(r), Input.Empty)
+        Done[Array[Byte], Either[SimpleResult, Int]](Left(r), Input.Empty)
       }.getOrElse(uploadValidated)
 
   }
