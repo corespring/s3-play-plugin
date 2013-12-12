@@ -17,7 +17,7 @@ import play.api.libs.iteratee.Done
 import java.util.concurrent.TimeUnit
 
 trait S3Service {
-  def download(bucket: String, fullKey: String, headers: Option[Headers] = None): Result
+  def download(bucket: String, fullKey: String, headers: Option[Headers] = None): SimpleResult
 
   def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult]) = (r => None)): BodyParser[Int]
 
@@ -50,7 +50,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
     def getAWSSecretKey: String = secret
   })
 
-  def download(bucket: String, fullKey: String, headers: Option[Headers]): Result = {
+  override def download(bucket: String, fullKey: String, headers: Option[Headers]): SimpleResult = {
 
     def nullOrEmpty(s: String) = s == null || s.isEmpty
 
@@ -96,7 +96,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
     None
   }
 
-  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult]) = emptyPredicate): BodyParser[Int] = BodyParser("S3Service") {
+  override def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult]) = emptyPredicate): BodyParser[Int] = BodyParser("S3Service") {
 
     request =>
 
