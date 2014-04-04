@@ -52,6 +52,9 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
 
   override def download(bucket: String, fullKey: String, headers: Option[Headers]): SimpleResult = {
 
+    Logger.debug(s"[download] $bucket, $fullKey")
+    Logger.trace(s"[download] $headers")
+
     def nullOrEmpty(s: String) = s == null || s.isEmpty
 
     if (nullOrEmpty(fullKey) || nullOrEmpty(bucket)) {
@@ -82,10 +85,10 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
       }
       catch {
         case e: AmazonClientException =>
-          Logger.error("AmazonClientException in s3download: " + e.getMessage)
+          Logger.error(s"AmazonClientException in s3download for bucket: $bucket, key: $key: " + e.getMessage)
           BadRequest("Error downloading")
         case e: AmazonServiceException =>
-          Logger.error("AmazonServiceException in s3download: " + e.getMessage)
+          Logger.error(s"AmazonClientException in s3download for bucket: $bucket, key: $key: " + e.getMessage)
           BadRequest("Error downloading")
       }
     }
