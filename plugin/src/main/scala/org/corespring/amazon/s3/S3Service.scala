@@ -15,6 +15,7 @@ import scala.concurrent._
 
 import play.api.libs.iteratee.Done
 import java.util.concurrent.TimeUnit
+import java.net.URLEncoder
 
 trait S3Service {
   def download(bucket: String, fullKey: String, headers: Option[Headers] = None): SimpleResult
@@ -55,13 +56,18 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
     Logger.debug(s"[download] $bucket, $fullKey")
     Logger.trace(s"[download] $headers")
 
+
+
     def nullOrEmpty(s: String) = s == null || s.isEmpty
 
     if (nullOrEmpty(fullKey) || nullOrEmpty(bucket)) {
       BadRequest("Invalid key")
     } else {
       def returnResultWithAsset(bucket: String, key: String): SimpleResult = {
-        val s3Object: S3Object = client.getObject(bucket, fullKey) //get object. may result in exception
+
+        val encodedKey = URLEncoder.encode(fullKey, "UTF-8")
+        Logger.trace(s"[download] encoded key: $encodedKey")
+        val s3Object: S3Object = client.getObject(bucket, encodedKey) //get object. may result in exception
         val inputStream: InputStream = s3Object.getObjectContent
         val objContent: Enumerator[Array[Byte]] = Enumerator.fromStream(inputStream)
         val metadata = s3Object.getObjectMetadata
