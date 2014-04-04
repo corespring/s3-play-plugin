@@ -78,6 +78,8 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
       }
 
       def returnNotModifiedOrResultWithAsset(headers: Headers, bucket: String, key: String): SimpleResult = {
+        val encodedKey = URLEncoder.encode(fullKey, "UTF-8")
+        Logger.trace(s"[download] encoded key: $encodedKey")
         val metadata: ObjectMetadata = client.getObjectMetadata(new GetObjectMetadataRequest(bucket, fullKey))
         val ifNoneMatch = headers.get(IF_NONE_MATCH).getOrElse("")
         if (ifNoneMatch != "" && ifNoneMatch == metadata.getETag) Results.NotModified else returnResultWithAsset(bucket, fullKey)
@@ -91,10 +93,10 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
       }
       catch {
         case e: AmazonClientException =>
-          Logger.error(s"AmazonClientException in s3download for bucket: $bucket, key: $key: " + e.getMessage)
+          Logger.error(s"AmazonClientException in s3download for bucket: $bucket, key: $fullKey: " + e.getMessage)
           BadRequest("Error downloading")
         case e: AmazonServiceException =>
-          Logger.error(s"AmazonClientException in s3download for bucket: $bucket, key: $key: " + e.getMessage)
+          Logger.error(s"AmazonClientException in s3download for bucket: $bucket, key: $fullKey: " + e.getMessage)
           BadRequest("Error downloading")
       }
     }
