@@ -65,9 +65,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
     } else {
       def returnResultWithAsset(bucket: String, key: String): SimpleResult = {
 
-        val encodedKey = URLEncoder.encode(fullKey, "UTF-8")
-        Logger.trace(s"[download] encoded key: $encodedKey")
-        val s3Object: S3Object = client.getObject(bucket, encodedKey) //get object. may result in exception
+        val s3Object: S3Object = client.getObject(bucket, fullKey) //get object. may result in exception
         val inputStream: InputStream = s3Object.getObjectContent
         val objContent: Enumerator[Array[Byte]] = Enumerator.fromStream(inputStream)
         val metadata = s3Object.getObjectMetadata
@@ -78,8 +76,6 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
       }
 
       def returnNotModifiedOrResultWithAsset(headers: Headers, bucket: String, key: String): SimpleResult = {
-        val encodedKey = URLEncoder.encode(fullKey, "UTF-8")
-        Logger.trace(s"[download] encoded key: $encodedKey")
         val metadata: ObjectMetadata = client.getObjectMetadata(new GetObjectMetadataRequest(bucket, fullKey))
         val ifNoneMatch = headers.get(IF_NONE_MATCH).getOrElse("")
         if (ifNoneMatch != "" && ifNoneMatch == metadata.getETag) Results.NotModified else returnResultWithAsset(bucket, fullKey)
