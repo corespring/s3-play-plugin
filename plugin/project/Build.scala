@@ -8,7 +8,6 @@ object Build extends sbt.Build {
   val ScalaVersion ="2.10.3"
   val libName = "s3-play-plugin"
   val libOrganization = "org.corespring"
-  val baseVersion = "0.2"
 
   object Dependencies {
     val play = "com.typesafe.play" %% "play" % playVersion % "provided"
