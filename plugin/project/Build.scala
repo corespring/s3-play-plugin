@@ -1,5 +1,6 @@
 import sbt._
 import sbt.Keys._
+import sbtrelease.ReleasePlugin._
 
 object Build extends sbt.Build {
 
@@ -8,11 +9,6 @@ object Build extends sbt.Build {
   val libName = "play-s3"
   val libOrganization = "org.corespring"
   val baseVersion = "0.2"
-
-  lazy val libVersion = {
-    val other = Process("git rev-parse --short HEAD").lines.head
-    baseVersion + "-" + other
-  }
 
   object Dependencies {
     val play = "com.typesafe.play" %% "play" % playVersion % "provided"
@@ -35,11 +31,10 @@ object Build extends sbt.Build {
   lazy val s3PlayPlugin = Project(
     id = libName ,
     base = file("."),
-    settings = Project.defaultSettings ++ Seq(
+    settings = Project.defaultSettings ++ releaseSettings ++ Seq(
       parallelExecution in(Test) := false,
       name := libName,
       organization := libOrganization,
-      version := libVersion,
       scalaVersion := ScalaVersion,
       libraryDependencies ++= Dependencies.all,
       resolvers ++= Resolvers.all,
