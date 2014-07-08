@@ -8,7 +8,7 @@ object ApplicationBuild extends Build {
   val appVersion = "1.0-SNAPSHOT"
 
   val appDependencies = Seq(
-    "corespring" %% "s3-play-plugin" % "0.1-SNAPSHOT"
+    "org.corespring" %% "s3-play-plugin" % "0.2-SNAPSHOT"
   )
 
   val main = play.Project(appName, appVersion, appDependencies).settings(

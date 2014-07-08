@@ -63,6 +63,8 @@ with BeforeAndAfterAll {
       val key = ConfigFactory.load().getString("amazonKey")
       val secret = ConfigFactory.load().getString("amazonSecret")
       val bucket = ConfigFactory.load().getString("testBucket")
+
+      println(s"$key, $secret, $bucket")
       val service = new ConcreteS3Service(key, secret)
       val filename = testFileName
       def toByteArray(s: InputStream): Array[Byte] = Stream.continually(s.read).takeWhile(-1 !=).map(_.toByte).toArray
