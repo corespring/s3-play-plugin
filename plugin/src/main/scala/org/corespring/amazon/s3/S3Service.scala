@@ -156,12 +156,17 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
                 } catch{
                   case e:TimeoutException => Error("uploader timed out",Input.EOF)
                 }
-                case Input.Empty => Cont(i => step(result)(i))
+                case Input.Empty => {
+                  Logger.trace("input is empty")
+                  Cont(i => step(result)(i))
+                }
                 case Input.El(bytes) => {
+                  Logger.trace(s"bytes received..")
                   val f = future[Either[SimpleResult,Int]] {
                     result match {
                       case Left(_) => result //an error occured, don't write anymore
                       case Right(total) => try{
+                        Logger.trace(s"bytes total.. ${total}")
                         outputStream.write(bytes, 0, bytes.size)
                         Right(total+bytes.size)
                       } catch {
