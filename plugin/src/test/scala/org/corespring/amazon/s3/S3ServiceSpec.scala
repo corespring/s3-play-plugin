@@ -15,13 +15,15 @@ import play.api.libs.iteratee.{Enumerator, Iteratee}
 import play.api.mvc._
 import play.api.test.FakeHeaders
 import play.api.test.FakeRequest
-import scala.concurrent.Await
+import scala.concurrent.{ExecutionContext, Await}
 import scala.concurrent.duration._
 import play.api.http.Status._
 
 class S3ServiceSpec extends WordSpec
 with MustMatchers
 with BeforeAndAfterAll {
+
+  import ExecutionContext.Implicits.global
 
   def testFileName = new GregorianCalendar().getTimeInMillis + "-s3-writer-spec-file.jpeg"
 
@@ -41,7 +43,7 @@ with BeforeAndAfterAll {
 
   def download(service:ConcreteS3Service, bucket:String, filename: String):Either[Int,Array[Byte]] = {
     service.download(bucket, filename) match {
-      case SimpleResult(header,body) => if (header.status == OK){
+      case SimpleResult(header,body, _) => if (header.status == OK){
         val consumer = Iteratee.fold[Array[Byte],Array[Byte]](Array())((output,input) => {
           output ++ input
         })
@@ -61,6 +63,8 @@ with BeforeAndAfterAll {
       val key = ConfigFactory.load().getString("amazonKey")
       val secret = ConfigFactory.load().getString("amazonSecret")
       val bucket = ConfigFactory.load().getString("testBucket")
+
+      println(s"$key, $secret, $bucket")
       val service = new ConcreteS3Service(key, secret)
       val filename = testFileName
       def toByteArray(s: InputStream): Array[Byte] = Stream.continually(s.read).takeWhile(-1 !=).map(_.toByte).toArray

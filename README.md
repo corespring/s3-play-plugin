@@ -13,4 +13,6 @@ To set it up you'll need to add the following conf file: `example/conf/amazon-s3
 
 You'll also need to publish-local in the plugin folder, so that the dependency is available to the play app (not on a internet repo yet).
 
+## Running the tests
 
+As above you'll need to configure `amazonKey`, `amazonSecret` and `testBucket`.
