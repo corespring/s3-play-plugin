@@ -1,21 +1,18 @@
 package org.corespring.amazon.s3
 
+import java.io.{IOException, PipedInputStream, PipedOutputStream}
+
 import akka.util.Timeout
 import com.amazonaws.auth.AWSCredentials
 import com.amazonaws.services.s3.AmazonS3Client
-import com.amazonaws.services.s3.model.{PutObjectResult, GetObjectMetadataRequest, ObjectMetadata, S3Object}
-import com.amazonaws.{AmazonServiceException, AmazonClientException}
-import java.io.{IOException, PipedInputStream, PipedOutputStream}
+import com.amazonaws.services.s3.model.{GetObjectMetadataRequest, ObjectMetadata, PutObjectResult, S3Object}
+import com.amazonaws.{AmazonClientException, AmazonServiceException}
 import org.corespring.amazon.s3.models._
 import play.api.libs.concurrent.Execution.Implicits._
-import play.api.libs.iteratee._
+import play.api.libs.iteratee.{Done, _}
 import play.api.mvc._
-import scala.Some
-import scala.concurrent._
 
-import play.api.libs.iteratee.Done
-import java.util.concurrent.TimeUnit
-import java.net.URLEncoder
+import scala.concurrent._
 
 trait S3Service {
   def download(bucket: String, fullKey: String, headers: Option[Headers] = None): SimpleResult
@@ -24,22 +21,29 @@ trait S3Service {
 
   def delete(bucket: String, keyName: String): DeleteResponse
 
+  def s3Object(bucket:String, keyName:String)(predicate: RequestHeader => Option[SimpleResult]) : BodyParser[Future[S3Object]]
+
 }
 
 object EmptyS3Service extends S3Service {
+
   def download(bucket: String, fullKey: String, headers: Option[Headers]): SimpleResult = ???
 
   def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult])): BodyParser[Int] = ???
 
   def delete(bucket: String, keyName: String): DeleteResponse = ???
+
+  override def s3Object(bucket: String, keyName: String)(predicate: (RequestHeader) => Option[SimpleResult]): BodyParser[Future[S3Object]] = ???
 }
 
 class ConcreteS3Service(key: String, secret: String) extends S3Service {
 
   import java.io.InputStream
+
   import log.Logger
   import play.api.http.HeaderNames._
   import play.api.mvc.Results._
+
   import scala.concurrent.duration._
 
   val duration = 10.seconds
@@ -103,6 +107,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
     None
   }
 
+  @deprecated("Use s3Object instead", "0.5")
   override def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult]) = emptyPredicate): BodyParser[Int] = BodyParser("S3Service") {
 
     request =>
@@ -207,5 +212,15 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
       case e: AmazonServiceException =>
         DeleteResponse(success = false, keyName, e.getMessage)
     }
+  }
+
+  lazy val parser = new S3BodyParser {
+    override def client: AmazonS3Client = ConcreteS3Service.this.client
+
+    override implicit def ec: ExecutionContext = ExecutionContext.Implicits.global
+  }
+
+  override def s3Object(bucket: String, keyName: String)(predicate: (RequestHeader) => Option[SimpleResult]): BodyParser[Future[S3Object]] = {
+    parser.s3Object(bucket, keyName)(predicate)
   }
 }
