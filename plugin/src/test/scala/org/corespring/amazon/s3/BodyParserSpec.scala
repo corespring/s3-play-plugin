@@ -10,13 +10,12 @@ import com.amazonaws.services.s3.model.S3Object
 import com.typesafe.config.ConfigFactory
 import org.specs2.mutable.Specification
 import play.api.http.HeaderNames._
-import play.api.libs.iteratee.{Iteratee, Enumerator}
+import play.api.libs.iteratee.{Enumerator, Iteratee}
 import play.api.mvc._
 import play.api.test.{FakeHeaders, FakeRequest}
-import play.modules.aws.s3.S3BodyParser
 
 import scala.concurrent.duration.Duration
-import scala.concurrent.{Await, Future, ExecutionContext}
+import scala.concurrent.{Await, ExecutionContext, Future}
 
 class BodyParserSpec extends Specification{
 
