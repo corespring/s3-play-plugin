@@ -11,6 +11,7 @@ import com.typesafe.config.ConfigFactory
 import org.specs2.mutable.Specification
 import play.api.http.HeaderNames._
 import play.api.libs.iteratee.{Enumerator, Iteratee}
+import com.amazonaws.services.s3.transfer.TransferManager
 import play.api.mvc._
 import play.api.test.{FakeHeaders, FakeRequest}
 
@@ -28,7 +29,7 @@ class BodyParserSpec extends Specification{
   lazy val s3Parser = new S3BodyParser{
     override implicit def ec: ExecutionContext = ExecutionContext.Implicits.global
 
-    override def client: AmazonS3Client = new AmazonS3Client(new AWSCredentials{
+    override val client: AmazonS3Client = new AmazonS3Client(new AWSCredentials{
       override def getAWSAccessKeyId: String = key
       override def getAWSSecretKey: String = secret
     })
@@ -44,12 +45,13 @@ class BodyParserSpec extends Specification{
     Await.result(enumerator.run(iteratee), Duration(10, TimeUnit.SECONDS))
   }
 
+  def toByteArray(s: InputStream): Array[Byte] = Stream.continually(s.read).takeWhile(-1 !=).map(_.toByte).toArray
+  val inputStream: InputStream = this.getClass.getResourceAsStream("/cute-squirrel.jpeg")
+  val byteArray = toByteArray(inputStream)
+
   "parser" should{
     "work" in {
       val name = mkFilename
-      def toByteArray(s: InputStream): Array[Byte] = Stream.continually(s.read).takeWhile(-1 !=).map(_.toByte).toArray
-      val inputStream: InputStream = this.getClass.getResourceAsStream("/cute-squirrel.jpeg")
-      val byteArray = toByteArray(inputStream)
       val result = upload(byteArray, name)
 
       result match {
@@ -63,6 +65,14 @@ class BodyParserSpec extends Specification{
           true === true
         }
       }
+    }
+
+    "upload multiple" in {
+    	(1 until 20).foreach{ index => 
+        val name = mkFilename
+        val result = upload(byteArray, name)
+    	}
+    	true === true
     }
   }
 }
