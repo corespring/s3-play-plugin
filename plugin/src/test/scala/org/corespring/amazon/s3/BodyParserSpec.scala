@@ -35,13 +35,13 @@ class BodyParserSpec extends Specification{
     })
   }
 
-  def upload(byteArray:Array[Byte], filename: String):Either[Result,Future[S3Object]] = {
+  def upload(byteArray:Array[Byte], filename: String):Either[Result,Future[(S3Object,Unit)]] = {
     val request: Request[AnyContent] = FakeRequest("?", "?",
       FakeHeaders(Seq(CONTENT_LENGTH.toString -> Seq(byteArray.size.toString))),
       AnyContentAsRaw(RawBuffer(byteArray.size, byteArray)))
     val enumerator = Enumerator[Array[Byte]](byteArray)
-    val parser : BodyParser[Future[S3Object]] = s3Parser.s3Object(bucket, filename)(rh => None)
-    val iteratee: Iteratee[Array[Byte], Either[Result, Future[S3Object]]] = parser.apply(request)
+    val parser : BodyParser[Future[(S3Object,Unit)]] = s3Parser.s3ObjectAndData[Unit](bucket, filename)(rh => Right(Unit))
+    val iteratee: Iteratee[Array[Byte], Either[Result, Future[(S3Object,Unit)]]] = parser.apply(request)
     Await.result(enumerator.run(iteratee), Duration(10, TimeUnit.SECONDS))
   }
 
@@ -57,7 +57,7 @@ class BodyParserSpec extends Specification{
       result match {
         case Left(result) => failure("should not get result")
         case Right(futureS3) => {
-          val s3 = Await.result(futureS3, Duration(10, TimeUnit.SECONDS))
+          val (s3,_) = Await.result(futureS3, Duration(10, TimeUnit.SECONDS))
           println(s3)
           s3.getKey === name
           s3.getBucketName === bucket

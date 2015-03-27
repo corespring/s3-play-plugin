@@ -19,43 +19,47 @@ trait S3BodyParser {
 
   def client : AmazonS3Client
 
-  def s3Object(bucket: String, key: String)(predicate: RequestHeader=>Option[SimpleResult]) : BodyParser[Future[S3Object]] = BodyParser("s3-object") { request =>
+  def s3ObjectAndData[A](bucket: String, key: String)(predicate: RequestHeader=>Either[SimpleResult,A]) : BodyParser[Future[(S3Object,A)]] = BodyParser("s3-object") { request =>
       Logger.debug(s"bucket=$bucket, key=$key")
-      predicate(request).map { err =>
-        Logger.debug(s"Predicate failed - returning: ${err.header.status}")
-        Done[Array[Byte], Either[SimpleResult,Future[S3Object]]](Left(err))
-      }.getOrElse{
-        lazy val transferManager = new TransferManager(client)
+      predicate(request) match {
+      	case Left(result) => {
+	        Logger.debug(s"Predicate failed - returning: ${result.header.status}")
+	        Done[Array[Byte], Either[SimpleResult,Future[(S3Object,A)]]](Left(result))
+      	}
+      	case Right(data) => {
+	        lazy val transferManager = new TransferManager(client)
 
-        val metadata = new ObjectMetadata
+	        val metadata = new ObjectMetadata
 
-        request.headers.get(play.api.http.HeaderNames.CONTENT_LENGTH).map(_.toInt).foreach { l =>
-          Logger.debug(s"contentLength=${l.toString}")
-          metadata.setContentLength(l)
-        }
+	        request.headers.get(play.api.http.HeaderNames.CONTENT_LENGTH).map(_.toInt).foreach { l =>
+	          Logger.debug(s"contentLength=${l.toString}")
+	          metadata.setContentLength(l)
+	        }
 
-        val output = new PipedOutputStream
-        val input = new PipedInputStream(output)
+	        val output = new PipedOutputStream
+	        val input = new PipedInputStream(output)
 
-        val p = scala.concurrent.promise[S3Object]
-        val f = p.future
-        val upload = transferManager.upload(bucket, key, input, metadata)
+	        val p = scala.concurrent.promise[(S3Object,A)]
+	        val f = p.future
+	        val upload = transferManager.upload(bucket, key, input, metadata)
 
-        upload.addProgressListener(new ProgressListener {
-          override def progressChanged(event: ProgressEvent): Unit = {
-            if(event.getEventType == ProgressEventType.TRANSFER_COMPLETED_EVENT){
-              Logger.trace(s"bucket=$bucket, key=$key, eventType=${event.getEventType}")
-              p.success{
-                transferManager.shutdownNow(false)
-                client.getObject(bucket, key)
-              }
-            }
-          }
-        })
+	        upload.addProgressListener(new ProgressListener {
+	          override def progressChanged(event: ProgressEvent): Unit = {
+	            if(event.getEventType == ProgressEventType.TRANSFER_COMPLETED_EVENT){
+	              Logger.trace(s"bucket=$bucket, key=$key, eventType=${event.getEventType}")
+	              p.success{
+	                transferManager.shutdownNow(false)
+	                (client.getObject(bucket, key),data)
+	              }
+	            }
+	          }
+	        })
 
-        transfer(output)(request).map(_ => {
-          Right(f)
-        })
+	        transfer(output)(request).map(_ => {
+	          Right(f)
+	        })
+
+      	}
       }
   }
 
