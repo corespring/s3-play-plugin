@@ -49,7 +49,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
   val duration = 10.seconds
   implicit val timeout: Timeout = Timeout(duration)
 
-  protected val client: AmazonS3Client = new AmazonS3Client(new AWSCredentials {
+  val client: AmazonS3Client = new AmazonS3Client(new AWSCredentials {
     def getAWSAccessKeyId: String = key
 
     def getAWSSecretKey: String = secret
