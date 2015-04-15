@@ -21,7 +21,7 @@ trait S3Service {
 
   def delete(bucket: String, keyName: String): DeleteResponse
 
-  def s3ObjectAndData[A](bucket:String, keyName:String)(predicate: RequestHeader => Either[SimpleResult,A]) : BodyParser[Future[(S3Object,A)]]
+  def s3ObjectAndData[A](bucket:String, makeKey:A =>String)(predicate: RequestHeader => Either[SimpleResult,A]) : BodyParser[Future[(S3Object,A)]]
 
 }
 
@@ -33,7 +33,7 @@ object EmptyS3Service extends S3Service {
 
   def delete(bucket: String, keyName: String): DeleteResponse = ???
 
-  override def s3ObjectAndData[A](bucket:String, keyName:String)(predicate: RequestHeader => Either[SimpleResult,A]) : BodyParser[Future[(S3Object,A)]] = ???
+  override def s3ObjectAndData[A](bucket:String, makeKey:A => String)(predicate: RequestHeader => Either[SimpleResult,A]) : BodyParser[Future[(S3Object,A)]] = ???
 }
 
 class ConcreteS3Service(key: String, secret: String) extends S3Service {
@@ -220,7 +220,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
     override implicit def ec: ExecutionContext = ExecutionContext.Implicits.global
   }
 
-  override def s3ObjectAndData[A](bucket: String, keyName: String)(predicate: (RequestHeader) => Either[SimpleResult, A]): BodyParser[Future[(S3Object,A)]] = {
-    parser.s3ObjectAndData[A](bucket, keyName)(predicate)
+  override def s3ObjectAndData[A](bucket: String, makeKey: A => String)(predicate: (RequestHeader) => Either[SimpleResult, A]): BodyParser[Future[(S3Object,A)]] = {
+    parser.s3ObjectAndDataMakeKey[A](bucket, makeKey)(predicate)
   }
 }
