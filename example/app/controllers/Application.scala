@@ -2,7 +2,7 @@ package controllers
 
 import play.api._
 import play.api.mvc._
-import org.corespring.amazon.s3.ConcreteS3Service
+import org.corespring.amazon.s3._
 import com.typesafe.config.ConfigFactory
 import play.libs.Akka
 import akka.actor.ActorSystem
@@ -18,10 +18,14 @@ object Application extends Controller {
     Ok(views.html.index("Your new application is ready."))
   }
 
-  def upload(name:String) = Action( new ConcreteS3Service(key,secret).upload(bucket, name) ){
+  def upload(name:String) = Action( new LocalFileS3Service().upload(bucket, name) ){
 
     request =>
       Ok("done")
+  }
+
+  def download(name:String) = Action{
+    request => new LocalFileS3Service().download(bucket, name)
   }
   
 }
