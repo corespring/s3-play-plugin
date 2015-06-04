@@ -4,9 +4,10 @@ import java.io.{IOException, PipedInputStream, PipedOutputStream}
 
 import akka.util.Timeout
 import com.amazonaws.auth.AWSCredentials
-import com.amazonaws.services.s3.AmazonS3Client
+import com.amazonaws.services.s3.{S3ClientOptions, AmazonS3, AmazonS3Client}
 import com.amazonaws.services.s3.model.{GetObjectMetadataRequest, ObjectMetadata, PutObjectResult, S3Object}
-import com.amazonaws.{AmazonClientException, AmazonServiceException}
+import com.amazonaws.{ClientConfiguration, AmazonClientException, AmazonServiceException}
+import org.corespring.amazon.s3
 import org.corespring.amazon.s3.models._
 import play.api.libs.concurrent.Execution.Implicits._
 import play.api.libs.iteratee.{Done, _}
@@ -27,16 +28,34 @@ trait S3Service {
 
 object EmptyS3Service extends S3Service {
 
-  def download(bucket: String, fullKey: String, headers: Option[Headers]): SimpleResult = ???
+  override def download(bucket: String, fullKey: String, headers: Option[Headers]): SimpleResult = ???
 
-  def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult])): BodyParser[Int] = ???
+  override def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult])): BodyParser[Int] = ???
 
-  def delete(bucket: String, keyName: String): DeleteResponse = ???
+  override def delete(bucket: String, keyName: String): DeleteResponse = ???
 
   override def s3ObjectAndData[A](bucket:String, makeKey:A => String)(predicate: RequestHeader => Either[SimpleResult,A]) : BodyParser[Future[(S3Object,A)]] = ???
 }
 
-class ConcreteS3Service(key: String, secret: String) extends S3Service {
+
+object S3Service{
+
+  def mkClient(key:String, secret:String, endpoint : Option[String] = None) = {
+      val out = new AmazonS3Client(
+        new AWSCredentials {
+          def getAWSAccessKeyId: String = key
+          def getAWSSecretKey: String = secret
+      })
+
+      endpoint.foreach{ e =>
+        out.setS3ClientOptions(new S3ClientOptions().withPathStyleAccess(true))
+        out.setEndpoint(e)
+      }
+
+      out
+  }
+}
+class ConcreteS3Service(val client : AmazonS3 /*key: String, secret: String, endpoint : Option[String]*/) extends S3Service {
 
   import java.io.InputStream
 
@@ -49,11 +68,6 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
   val duration = 10.seconds
   implicit val timeout: Timeout = Timeout(duration)
 
-  val client: AmazonS3Client = new AmazonS3Client(new AWSCredentials {
-    def getAWSAccessKeyId: String = key
-
-    def getAWSSecretKey: String = secret
-  })
 
   override def download(bucket: String, fullKey: String, headers: Option[Headers]): SimpleResult = {
 
@@ -215,7 +229,7 @@ class ConcreteS3Service(key: String, secret: String) extends S3Service {
   }
 
   lazy val parser = new S3BodyParser {
-    override def client: AmazonS3Client = ConcreteS3Service.this.client
+    override def client: AmazonS3 = ConcreteS3Service.this.client
 
     override implicit def ec: ExecutionContext = ExecutionContext.Implicits.global
   }

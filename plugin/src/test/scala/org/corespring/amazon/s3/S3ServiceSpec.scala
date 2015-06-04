@@ -65,7 +65,7 @@ with BeforeAndAfterAll {
       val bucket = ConfigFactory.load().getString("testBucket")
 
       println(s"$key, $secret, $bucket")
-      val service = new ConcreteS3Service(key, secret)
+      val service = new ConcreteS3Service(S3Service.mkClient(key, secret))
       val filename = testFileName
       def toByteArray(s: InputStream): Array[Byte] = Stream.continually(s.read).takeWhile(-1 !=).map(_.toByte).toArray
       val inputStream: InputStream = this.getClass.getResourceAsStream("/cute-squirrel.jpeg")

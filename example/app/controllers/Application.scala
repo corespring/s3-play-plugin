@@ -18,14 +18,15 @@ object Application extends Controller {
     Ok(views.html.index("Your new application is ready."))
   }
 
-  def upload(name:String) = Action( new LocalFileS3Service().upload(bucket, name) ){
+  val s3Service = new ConcreteS3Service(key, secret, Some("http://localhost:4567"))
 
+  def upload(name:String) = Action( s3Service.upload(bucket, name) ){
     request =>
       Ok("done")
   }
 
   def download(name:String) = Action{
-    request => new LocalFileS3Service().download(bucket, name)
+    request => s3Service.download(bucket, name)
   }
   
 }

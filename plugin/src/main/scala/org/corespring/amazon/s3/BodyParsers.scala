@@ -3,7 +3,7 @@ package org.corespring.amazon.s3
 import java.io.{OutputStream, PipedInputStream, PipedOutputStream}
 
 import com.amazonaws.event.{ProgressEvent, ProgressEventType, ProgressListener}
-import com.amazonaws.services.s3.AmazonS3Client
+import com.amazonaws.services.s3.{AmazonS3, AmazonS3Client}
 import com.amazonaws.services.s3.model.{ObjectMetadata, S3Object}
 import com.amazonaws.services.s3.transfer.TransferManager
 import play.api.libs.iteratee.{Done, Iteratee}
@@ -17,7 +17,7 @@ trait S3BodyParser {
 
   import log.Logger
 
-  def client : AmazonS3Client
+  def client : AmazonS3
 
   def s3ObjectAndData[A](bucket: String, key: String)(predicate: RequestHeader=>Either[SimpleResult,A]) : BodyParser[Future[(S3Object,A)]] = {
     Logger.debug(s"bucket=$bucket, key=$key")

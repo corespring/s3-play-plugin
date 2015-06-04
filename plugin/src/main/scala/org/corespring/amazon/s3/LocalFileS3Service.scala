@@ -1,9 +1,13 @@
 package org.corespring.amazon.s3
 
-import java.io.{FileOutputStream, File}
+import java.io.{InputStream, FileOutputStream, File}
 import java.net.URL
+import java.util
+import java.util.Date
 
-import com.amazonaws.services.s3.model.S3Object
+import com.amazonaws.{regions, AmazonWebServiceRequest, HttpMethod}
+import com.amazonaws.services.s3.{S3ResponseMetadata, S3ClientOptions, AmazonS3}
+import com.amazonaws.services.s3.model._
 import org.corespring.amazon.s3.log._
 import org.corespring.amazon.s3.models.DeleteResponse
 import org.joda.time.DateTimeZone
@@ -166,4 +170,5 @@ class LocalFileS3Service() extends S3Service{
   }
 
   override def delete(bucket: String, keyName: String): DeleteResponse = DeleteResponse(true, keyName)
+
 }
