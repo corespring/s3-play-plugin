@@ -18,7 +18,7 @@ object Application extends Controller {
     Ok(views.html.index("Your new application is ready."))
   }
 
-  val s3Service = new ConcreteS3Service(key, secret, Some("http://localhost:4567"))
+  val s3Service = new ConcreteS3Service(S3Service.mkClient(key, secret))
 
   def upload(name:String) = Action( s3Service.upload(bucket, name) ){
     request =>
