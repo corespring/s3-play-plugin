@@ -87,8 +87,13 @@ class ConcreteS3Service(val client : AmazonS3 /*key: String, secret: String, end
         val inputStream: InputStream = s3Object.getObjectContent
         val objContent: Enumerator[Array[Byte]] = Enumerator.fromStream(inputStream)
         val metadata = s3Object.getObjectMetadata
+        val contentType = metadata.getContentType()
         SimpleResult(
-          header = ResponseHeader(200, Map(CONTENT_LENGTH.toString -> metadata.getContentLength.toString, ETAG -> metadata.getETag)),
+          header = ResponseHeader(200, Map(
+            CONTENT_TYPE -> (if(contentType != null) contentType else "application/octet-stream"), 
+            CONTENT_LENGTH.toString -> metadata.getContentLength.toString, 
+            ETAG -> metadata.getETag
+            )),
           body = objContent
         )
       }
