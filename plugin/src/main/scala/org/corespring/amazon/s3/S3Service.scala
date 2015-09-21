@@ -1,9 +1,12 @@
 package org.corespring.amazon.s3
 
-import java.io.{IOException, PipedInputStream, PipedOutputStream}
+import java.io.{File, IOException, PipedInputStream, PipedOutputStream}
 
 import akka.util.Timeout
-import com.amazonaws.auth.AWSCredentials
+import com.amazonaws.auth.{BasicAWSCredentials, AWSCredentials}
+import com.amazonaws.event.{ProgressEventType, ProgressEvent, ProgressListener}
+import com.amazonaws.services.s3.transfer.Transfer.TransferState
+import com.amazonaws.services.s3.transfer.TransferManager
 import com.amazonaws.services.s3.{S3ClientOptions, AmazonS3, AmazonS3Client}
 import com.amazonaws.services.s3.model.{GetObjectMetadataRequest, ObjectMetadata, PutObjectResult, S3Object}
 import com.amazonaws.{ClientConfiguration, AmazonClientException, AmazonServiceException}
@@ -13,10 +16,12 @@ import play.api.libs.concurrent.Execution.Implicits._
 import play.api.libs.iteratee.{Done, _}
 import play.api.mvc._
 
+import scala.concurrent.Future
+
 import scala.concurrent._
 
 trait S3Service {
-  def download(bucket: String, fullKey: String, headers: Option[Headers] = None): SimpleResult
+  def download(bucket: String, fullKey: String, headers: Option[Headers] = None): Future[SimpleResult]
 
   def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult]) = (r => None)): BodyParser[Int]
 
@@ -28,7 +33,7 @@ trait S3Service {
 
 object EmptyS3Service extends S3Service {
 
-  override def download(bucket: String, fullKey: String, headers: Option[Headers]): SimpleResult = ???
+  override def download(bucket: String, fullKey: String, headers: Option[Headers]): Future[SimpleResult] = ???
 
   override def upload(bucket: String, keyName: String, predicate: (RequestHeader => Option[SimpleResult])): BodyParser[Int] = ???
 
@@ -55,7 +60,7 @@ object S3Service{
       out
   }
 }
-class ConcreteS3Service(val client : AmazonS3 /*key: String, secret: String, endpoint : Option[String]*/) extends S3Service {
+class ConcreteS3Service(key: String, secret: String, endpoint : Option[String]) extends S3Service {
 
   import java.io.InputStream
 
@@ -68,40 +73,57 @@ class ConcreteS3Service(val client : AmazonS3 /*key: String, secret: String, end
   val duration = 10.seconds
   implicit val timeout: Timeout = Timeout(duration)
 
+  val client = S3Service.mkClient(key, secret)
+  val transferManager = new TransferManager(new BasicAWSCredentials(key, secret))
 
-  override def download(bucket: String, fullKey: String, headers: Option[Headers]): SimpleResult = {
+
+  override def download(bucket: String, fullKey: String, headers: Option[Headers]): Future[SimpleResult] = {
 
     Logger.debug(s"[download] $bucket, $fullKey")
     Logger.trace(s"[download] $headers")
 
-
-
     def nullOrEmpty(s: String) = s == null || s.isEmpty
 
     if (nullOrEmpty(fullKey) || nullOrEmpty(bucket)) {
-      BadRequest("Invalid key")
+      Future.successful(BadRequest("Invalid key"))
     } else {
-      def returnResultWithAsset(bucket: String, key: String): SimpleResult = {
+      def returnResultWithAsset(bucket: String, key: String): Future[SimpleResult] = {
 
-        val s3Object: S3Object = client.getObject(bucket, fullKey) //get object. may result in exception
-        val inputStream: InputStream = s3Object.getObjectContent
-        val objContent: Enumerator[Array[Byte]] = Enumerator.fromStream(inputStream)
-        val metadata = s3Object.getObjectMetadata
-        val contentType = metadata.getContentType()
-        SimpleResult(
-          header = ResponseHeader(200, Map(
-            CONTENT_TYPE -> (if(contentType != null) contentType else "application/octet-stream"), 
-            CONTENT_LENGTH.toString -> metadata.getContentLength.toString, 
-            ETAG -> metadata.getETag
-            )),
-          body = objContent
-        )
+        val file = File.createTempFile("s3", ".tmp")
+        val promise = Promise[SimpleResult]
+        val download = transferManager.download(bucket, key, file)
+
+        download.addProgressListener(new ProgressListener() {
+          override def progressChanged(progressEvent: ProgressEvent) = {
+            import TransferState._
+            download.getState match {
+              case Completed => promise.success({
+                val metadata = download.getObjectMetadata
+                SimpleResult(
+                  header = ResponseHeader(200, Map(
+                    CONTENT_TYPE -> metadata.getContentType,
+                    CONTENT_LENGTH -> metadata.getContentLength.toString,
+                    ETAG -> metadata.getETag
+                  )),
+                  body = Enumerator.fromFile(file)
+                )
+              })
+              case Canceled => promise.success(InternalServerError("Canceled"))
+              case Failed => promise.success(InternalServerError("Failed"))
+            }
+          }
+        })
+
+        promise.future
       }
 
-      def returnNotModifiedOrResultWithAsset(headers: Headers, bucket: String, key: String): SimpleResult = {
+      def returnNotModifiedOrResultWithAsset(headers: Headers, bucket: String, key: String): Future[SimpleResult] = {
         val metadata: ObjectMetadata = client.getObjectMetadata(new GetObjectMetadataRequest(bucket, fullKey))
         val ifNoneMatch = headers.get(IF_NONE_MATCH).getOrElse("")
-        if (ifNoneMatch != "" && ifNoneMatch == metadata.getETag) Results.NotModified else returnResultWithAsset(bucket, fullKey)
+        (ifNoneMatch != "" && ifNoneMatch == metadata.getETag) match {
+          case true => Future.successful(Results.NotModified)
+          case _ => returnResultWithAsset(bucket, fullKey)
+        }
       }
 
       try {
@@ -113,10 +135,10 @@ class ConcreteS3Service(val client : AmazonS3 /*key: String, secret: String, end
       catch {
         case e: AmazonClientException =>
           Logger.error(s"AmazonClientException in s3download for bucket: $bucket, key: $fullKey: " + e.getMessage)
-          BadRequest("Error downloading")
+          Future.successful(BadRequest("Error downloading"))
         case e: AmazonServiceException =>
           Logger.error(s"AmazonClientException in s3download for bucket: $bucket, key: $fullKey: " + e.getMessage)
-          BadRequest("Error downloading")
+          Future.successful(BadRequest("Error downloading"))
       }
     }
   }

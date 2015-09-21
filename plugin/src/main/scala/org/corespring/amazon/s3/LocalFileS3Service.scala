@@ -91,41 +91,42 @@ class LocalFileS3Service() extends S3Service{
     }
   }
 
-  override def download(bucket: String, fullKey: String, headers: Option[Headers]): SimpleResult = {
+  override def download(bucket: String, fullKey: String, headers: Option[Headers]): Future[SimpleResult] =
+    Future.successful({
 
-    resourceNameAt(bucket, fullKey).map { resourceName =>
+      resourceNameAt(bucket, fullKey).map { resourceName =>
 
-      resource(resourceName).map{ url =>
+        resource(resourceName).map{ url =>
 
-          lazy val (length, resourceData) = {
-            val stream = url.openStream()
-            try {
-              (stream.available, Enumerator.fromStream(stream))
-            } catch {
-              case _: Throwable => (-1, Enumerator[Array[Byte]]())
+            lazy val (length, resourceData) = {
+              val stream = url.openStream()
+              try {
+                (stream.available, Enumerator.fromStream(stream))
+              } catch {
+                case _: Throwable => (-1, Enumerator[Array[Byte]]())
+              }
             }
+
+
+            if (length == -1) {
+              NotFound
+            } else {
+
+              import play.api.http.HeaderNames._
+              import play.api.http.Status._
+              import play.api.http.ContentTypes._
+
+                // Prepare a streamed response
+                SimpleResult(
+                  ResponseHeader(OK, Map(
+                    CONTENT_LENGTH -> length.toString,
+                    CONTENT_TYPE -> MimeTypes.forFileName(fullKey).map(m => m + addCharsetIfNeeded(m)).getOrElse(BINARY),
+                    DATE -> df.print({ new java.util.Date }.getTime))),
+                  resourceData)
+              }
           }
-
-
-          if (length == -1) {
-            NotFound
-          } else {
-
-            import play.api.http.HeaderNames._
-            import play.api.http.Status._
-            import play.api.http.ContentTypes._
-
-              // Prepare a streamed response
-              SimpleResult(
-                ResponseHeader(OK, Map(
-                  CONTENT_LENGTH -> length.toString,
-                  CONTENT_TYPE -> MimeTypes.forFileName(fullKey).map(m => m + addCharsetIfNeeded(m)).getOrElse(BINARY),
-                  DATE -> df.print({ new java.util.Date }.getTime))),
-                resourceData)
-            }
-        }
-    }
-  }.flatten.getOrElse(NotFound)
+      }
+    }.flatten.getOrElse(NotFound))
 
   override def s3ObjectAndData[A](bucket: String, makeKey: (A) => String)(predicate: (RequestHeader) => Either[SimpleResult, A]): BodyParser[Future[(S3Object, A)]] = {
 
