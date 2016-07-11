@@ -11,23 +11,24 @@ import org.scalatest.WordSpec
 import org.scalatest.matchers.MustMatchers
 import play.api.http.HeaderNames._
 import play.api.libs.iteratee.Input.EOF
-import play.api.libs.iteratee.{Enumerator, Iteratee}
+import play.api.libs.iteratee.{ Enumerator, Iteratee }
 import play.api.mvc._
 import play.api.test.FakeHeaders
 import play.api.test.FakeRequest
-import scala.concurrent.{ExecutionContext, Await}
+import scala.concurrent.{ ExecutionContext, Await }
 import scala.concurrent.duration._
 import play.api.http.Status._
+import com.amazonaws.services.s3.transfer.TransferManager
 
 class S3ServiceSpec extends WordSpec
-with MustMatchers
-with BeforeAndAfterAll {
+  with MustMatchers
+  with BeforeAndAfterAll {
 
   import ExecutionContext.Implicits.global
 
   def testFileName = new GregorianCalendar().getTimeInMillis + "-s3-writer-spec-file.jpeg"
 
-  def upload(byteArray:Array[Byte], service:ConcreteS3Service, bucket:String, filename: String):Int = {
+  def upload(byteArray: Array[Byte], service: ConcreteS3Service, bucket: String, filename: String): Int = {
     val request: Request[AnyContent] = FakeRequest("?", "?",
       FakeHeaders(Seq(CONTENT_LENGTH.toString -> Seq(byteArray.size.toString))),
       AnyContentAsRaw(RawBuffer(byteArray.size, byteArray)))
@@ -35,20 +36,19 @@ with BeforeAndAfterAll {
     val parser: BodyParser[Int] = service.upload(bucket, filename)
     val iteratee: Iteratee[Array[Byte], Either[Result, Int]] = parser.apply(request)
 
-
     import scala.concurrent.duration._
     val out = Await.result(enumerator.run(iteratee), 10.seconds)
     out.right.getOrElse(-1)
   }
 
-  def download(service:ConcreteS3Service, bucket:String, filename: String):Either[Int,Array[Byte]] = {
+  def download(service: ConcreteS3Service, bucket: String, filename: String): Either[Int, Array[Byte]] = {
     service.download(bucket, filename) match {
-      case SimpleResult(header,body, _) => if (header.status == OK){
-        val consumer = Iteratee.fold[Array[Byte],Array[Byte]](Array())((output,input) => {
+      case SimpleResult(header, body, _) => if (header.status == OK) {
+        val consumer = Iteratee.fold[Array[Byte], Array[Byte]](Array())((output, input) => {
           output ++ input
         })
-        Right(Await.result(Await.result(body.asInstanceOf[Enumerator[Array[Byte]]](consumer),10.seconds).run,10.seconds))
-      }else{
+        Right(Await.result(Await.result(body.asInstanceOf[Enumerator[Array[Byte]]](consumer), 10.seconds).run, 10.seconds))
+      } else {
         Left(header.status)
       }
 
@@ -65,20 +65,21 @@ with BeforeAndAfterAll {
       val bucket = ConfigFactory.load().getString("testBucket")
 
       println(s"$key, $secret, $bucket")
-      val service = new ConcreteS3Service(S3Service.mkClient(key, secret))
+      val client = S3Service.mkClient(key, secret)
+      val service = new ConcreteS3Service(client, new TransferManager(client))
       val filename = testFileName
       def toByteArray(s: InputStream): Array[Byte] = Stream.continually(s.read).takeWhile(-1 !=).map(_.toByte).toArray
       val inputStream: InputStream = this.getClass.getResourceAsStream("/cute-squirrel.jpeg")
       val byteArray = toByteArray(inputStream)
 
-      upload(byteArray,service,bucket,filename) must equal(byteArray.length)
+      upload(byteArray, service, bucket, filename) must equal(byteArray.length)
 
       //download
-      val downloadedBytes = download(service,bucket,filename).right.get
-      def compareBytes:Boolean = {
-        if(downloadedBytes.length == byteArray.length){
+      val downloadedBytes = download(service, bucket, filename).right.get
+      def compareBytes: Boolean = {
+        if (downloadedBytes.length == byteArray.length) {
           var result = true
-          for(i <- 0 to downloadedBytes.length-1){
+          for (i <- 0 to downloadedBytes.length - 1) {
             result && (downloadedBytes(i) == byteArray(i))
           }
           result
@@ -87,9 +88,9 @@ with BeforeAndAfterAll {
       compareBytes === true
 
       //delete
-      val deleteResponse = service.delete(bucket,filename)
+      val deleteResponse = service.delete(bucket, filename)
       deleteResponse.success === true
-      download(service,bucket,filename).isLeft === true
+      download(service, bucket, filename).isLeft === true
     }
   }
 
