@@ -127,24 +127,22 @@ class LocalFileS3Service() extends S3Service{
     }
   }.flatten.getOrElse(NotFound)
 
-  override def s3ObjectAndData[A](bucket: String, makeKey: (A) => String)(predicate: (RequestHeader) => Either[SimpleResult, A]): BodyParser[Future[(S3Object, A)]] = {
+  override def uploadWithData[A](bucket: String, makeKey: (A) => String)(predicate: (RequestHeader) => Either[SimpleResult, A]): BodyParser[Future[(Uploaded, A)]] = {
 
     BodyParser("local-file-s3-object") { request =>
       predicate(request) match {
         case Left(result) => {
           Logger.debug(s"Predicate failed - returning: ${result.header.status}")
-          Done[Array[Byte], Either[SimpleResult,Future[(S3Object,A)]]](Left(result))
+          Done[Array[Byte], Either[SimpleResult,Future[(Uploaded,A)]]](Left(result))
         }
         case Right(data) => {
           val key = makeKey(data)
 
-          BodyParsers.parse.raw(request).mapM[Either[SimpleResult,Future[(S3Object,A)]]]{
+          BodyParsers.parse.raw(request).mapM[Either[SimpleResult,Future[(Uploaded,A)]]]{
             case Left(r) => Future(Left(r))
             case Right(buffer) => {
               bytesToFile(s"${generatedFolder.getPath}/$bucket/$key", buffer.asBytes().get)
-              val s3Object : S3Object = new S3Object()
-              s3Object.setKey(key)
-              Future(Right(Future(s3Object, data)))
+              Future(Right(Future(Uploaded("bucket", key), data)))
             }
           }
         }
@@ -164,7 +162,7 @@ class LocalFileS3Service() extends S3Service{
   }
 
   override def upload(bucket: String, keyName: String, predicate: (RequestHeader) => Option[SimpleResult]): BodyParser[Int] = {
-    s3ObjectAndData[Int](bucket, i => keyName)((rh) => Right(0)).map{ (f:Future[(S3Object,Int)]) =>
+    uploadWithData[Int](bucket, i => keyName)((rh) => Right(0)).map{ (f:Future[(Uploaded,Int)]) =>
       0
     }
   }

@@ -3,13 +3,14 @@ package org.corespring.amazon.s3
 import java.io.{ OutputStream, PipedInputStream, PipedOutputStream }
 
 import com.amazonaws.event.{ ProgressEvent, ProgressEventType, ProgressListener }
-import com.amazonaws.services.s3.{ AmazonS3, AmazonS3Client }
-import com.amazonaws.services.s3.model.{ ObjectMetadata, S3Object }
+import com.amazonaws.services.s3.model.{ ObjectMetadata  }
 import com.amazonaws.services.s3.transfer.TransferManager
 import play.api.libs.iteratee.{ Done, Iteratee }
 import play.api.mvc.{ BodyParser, RequestHeader, SimpleResult }
 
 import scala.concurrent.{ ExecutionContext, Future }
+
+case class Uploaded(bucket:String, key:String)
 
 trait S3BodyParser {
 
@@ -17,21 +18,19 @@ trait S3BodyParser {
 
   import log.Logger
 
-  def client: AmazonS3
-
   def transferManager: TransferManager
 
-  def s3ObjectAndData[A](bucket: String, key: String)(predicate: RequestHeader => Either[SimpleResult, A]): BodyParser[Future[(S3Object, A)]] = {
+  def uploadWithData[A](bucket: String, key: String)(predicate: RequestHeader => Either[SimpleResult, A]): BodyParser[Future[(Uploaded, A)]] = {
     Logger.debug(s"bucket=$bucket, key=$key")
-    s3ObjectAndDataMakeKey[A](bucket, _ => key)(predicate)
+    uploadWithDataMakeKey[A](bucket, _ => key)(predicate)
   }
 
-  def s3ObjectAndDataMakeKey[A](bucket: String, mkKey: A => String)(predicate: RequestHeader => Either[SimpleResult, A]): BodyParser[Future[(S3Object, A)]] = BodyParser("s3-object") { request =>
+  def uploadWithDataMakeKey[A](bucket: String, mkKey: A => String)(predicate: RequestHeader => Either[SimpleResult, A]): BodyParser[Future[(Uploaded, A)]] = BodyParser("s3-object") { request =>
     Logger.debug(s"bucket=$bucket, key=$mkKey")
     predicate(request) match {
       case Left(result) => {
         Logger.debug(s"Predicate failed - returning: ${result.header.status}")
-        Done[Array[Byte], Either[SimpleResult, Future[(S3Object, A)]]](Left(result))
+        Done[Array[Byte], Either[SimpleResult, Future[(Uploaded, A)]]](Left(result))
       }
       case Right(data) => {
         val metadata = new ObjectMetadata
@@ -44,18 +43,24 @@ trait S3BodyParser {
         val output = new PipedOutputStream
         val input = new PipedInputStream(output)
 
-        val p = scala.concurrent.promise[(S3Object, A)]
+        val p = scala.concurrent.promise[(Uploaded, A)]
         val f = p.future
         val key = mkKey(data)
         val upload = transferManager.upload(bucket, key, input, metadata)
 
         upload.addProgressListener(new ProgressListener {
           override def progressChanged(event: ProgressEvent): Unit = {
-            if (event.getEventType == ProgressEventType.TRANSFER_COMPLETED_EVENT) {
-              Logger.trace(s"bucket=$bucket, key=$key, eventType=${event.getEventType}, bytes=${event.getBytesTransferred}")
-              p.success {
-                (client.getObject(bucket, key), data)
-              }
+            event.getEventType match {
+              case ProgressEventType.TRANSFER_COMPLETED_EVENT =>
+                Logger.trace(s"bucket=$bucket, key=$key, eventType=${event.getEventType}")
+               p.success{ (Uploaded(bucket, key), data) }
+              case ProgressEventType.TRANSFER_FAILED_EVENT =>
+                Logger.error(s"bucket=$bucket, key=$key, eventType=${event.getEventType}")
+                p.failure(new RuntimeException(s"key=$key - transfer failed"))
+              case ProgressEventType.TRANSFER_CANCELED_EVENT =>
+                Logger.error(s"bucket=$bucket, key=$key, eventType=${event.getEventType}")
+                p.failure(new RuntimeException(s"key=$key - transfer cancelled"))
+              case _ => // do nothing
             }
           }
         })

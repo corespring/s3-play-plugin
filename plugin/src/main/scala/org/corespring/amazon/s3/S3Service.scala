@@ -1,17 +1,16 @@
 package org.corespring.amazon.s3
 
-import java.io.{ IOException, PipedInputStream, PipedOutputStream }
+import java.io.{IOException, PipedInputStream, PipedOutputStream}
 
 import akka.util.Timeout
 import com.amazonaws.auth.AWSCredentials
-import com.amazonaws.services.s3.{ S3ClientOptions, AmazonS3, AmazonS3Client }
-import com.amazonaws.services.s3.model.{ GetObjectMetadataRequest, ObjectMetadata, PutObjectResult, S3Object }
+import com.amazonaws.services.s3.model.{GetObjectMetadataRequest, ObjectMetadata, PutObjectResult, S3Object}
 import com.amazonaws.services.s3.transfer.TransferManager
-import com.amazonaws.{ ClientConfiguration, AmazonClientException, AmazonServiceException }
-import org.corespring.amazon.s3
+import com.amazonaws.services.s3.{AmazonS3, AmazonS3Client, S3ClientOptions}
+import com.amazonaws.{AmazonClientException, AmazonServiceException}
 import org.corespring.amazon.s3.models._
 import play.api.libs.concurrent.Execution.Implicits._
-import play.api.libs.iteratee.{ Done, _ }
+import play.api.libs.iteratee.{Done, _}
 import play.api.mvc._
 
 import scala.concurrent._
@@ -23,7 +22,7 @@ trait S3Service {
 
   def delete(bucket: String, keyName: String): DeleteResponse
 
-  def s3ObjectAndData[A](bucket: String, makeKey: A => String)(predicate: RequestHeader => Either[SimpleResult, A]): BodyParser[Future[(S3Object, A)]]
+  def uploadWithData[A](bucket: String, makeKey: A => String)(predicate: RequestHeader => Either[SimpleResult, A]): BodyParser[Future[(Uploaded, A)]]
 
 }
 
@@ -35,7 +34,7 @@ object EmptyS3Service extends S3Service {
 
   override def delete(bucket: String, keyName: String): DeleteResponse = ???
 
-  override def s3ObjectAndData[A](bucket: String, makeKey: A => String)(predicate: RequestHeader => Either[SimpleResult, A]): BodyParser[Future[(S3Object, A)]] = ???
+  override def uploadWithData[A](bucket: String, makeKey: A => String)(predicate: RequestHeader => Either[SimpleResult, A]): BodyParser[Future[(Uploaded, A)]] = ???
 }
 
 object S3Service {
@@ -229,13 +228,12 @@ class ConcreteS3Service(
   }
 
   lazy val parser = new S3BodyParser {
-    override def client: AmazonS3 = ConcreteS3Service.this.client
     override def transferManager: TransferManager = ConcreteS3Service.this.transferManager
 
     override implicit def ec: ExecutionContext = ExecutionContext.Implicits.global
   }
 
-  override def s3ObjectAndData[A](bucket: String, makeKey: A => String)(predicate: (RequestHeader) => Either[SimpleResult, A]): BodyParser[Future[(S3Object, A)]] = {
-    parser.s3ObjectAndDataMakeKey[A](bucket, makeKey)(predicate)
+  override def uploadWithData[A](bucket: String, makeKey: A => String)(predicate: (RequestHeader) => Either[SimpleResult, A]): BodyParser[Future[(Uploaded, A)]] = {
+    parser.uploadWithDataMakeKey[A](bucket, makeKey)(predicate)
   }
 }
